@@ -3,7 +3,7 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-const PATIENT_FIELDS = array('Rec No','Idnum','Lastname','Firstname','Mi','Generation','Name','Street1','Street2','City','State','Zip','Physicalstreet','Physicalstreet2','Physicalcity','Physicalstate','Physicalzip','Homephone','Workphone','Workextension','Accountno','Billtonum','Billtoname','Hmo Flag','Legalrep','Ssn','Provider','Assistant','Referredfrom','Referraltype','Birthdate','Sex','Feeschedule','Maritalstatus','Employmentstatus','Admin.deathindicator','Admin.releaseinfo','Admin.signatureonfile','Admin.globalprocedure','Admin.globaldate','Admin.globaldateexpires','Admin.nostatements','Admin.billingcycle','Admin.residencetype','Admin.classname','Admin.location','Dateentered','Timeentered','Whoentered','Datemodified','Timemodified','Whomodified','Recordinglocation','Note','Chiropractic.initialtreatment','Chiropractic.lastxray','Chiropractic.numberinseries','Chiropractic.subluxation','Chiropractic.treatmentmonths','Chiropractic.numbertreatments','Chiropractic.natureofcondition','Chiropractic.datemanifested','Chiropractic.complicationindicator','Userfld1','Userfld2','Userfld3','Long1','Long2','Decimal1','Decimal2','Byte1','Byte2','String1','String2','Email','Cellphone','Immzsubmitcons','Immzsubmitconsdate','Mothermaidenname','Countrycode','Race','Ethnicity','Language','Pt:memo');
+$patientFields = array('Rec No','Idnum','Lastname','Firstname','Mi','Generation','Name','Street1','Street2','City','State','Zip','Physicalstreet','Physicalstreet2','Physicalcity','Physicalstate','Physicalzip','Homephone','Workphone','Workextension','Accountno','Billtonum','Billtoname','Hmo Flag','Legalrep','Ssn','Provider','Assistant','Referredfrom','Referraltype','Birthdate','Sex','Feeschedule','Maritalstatus','Employmentstatus','Admin.deathindicator','Admin.releaseinfo','Admin.signatureonfile','Admin.globalprocedure','Admin.globaldate','Admin.globaldateexpires','Admin.nostatements','Admin.billingcycle','Admin.residencetype','Admin.classname','Admin.location','Dateentered','Timeentered','Whoentered','Datemodified','Timemodified','Whomodified','Recordinglocation','Note','Chiropractic.initialtreatment','Chiropractic.lastxray','Chiropractic.numberinseries','Chiropractic.subluxation','Chiropractic.treatmentmonths','Chiropractic.numbertreatments','Chiropractic.natureofcondition','Chiropractic.datemanifested','Chiropractic.complicationindicator','Userfld1','Userfld2','Userfld3','Long1','Long2','Decimal1','Decimal2','Byte1','Byte2','String1','String2','Email','Cellphone','Immzsubmitcons','Immzsubmitconsdate','Mothermaidenname','Countrycode','Race','Ethnicity','Language','Pt:memo');
 
 $upload = null;
 $db = null;
@@ -29,6 +29,8 @@ if (isset($_FILES['csv']))
 
 function Parse($csv)
 {
+	global $patientFields;
+
 	// Ensure the file we were passed is a valid file
 	if ($csv === false)
 		throw new Exception("Invalid CSV Handle");
@@ -39,22 +41,22 @@ function Parse($csv)
 		throw new Exception("Couldn't read header row");
 
 	// Ensure all the required elements are present
-	$difference = array_diff(PATIENT_FIELDS, $headersPresent);
+	$difference = array_diff($patientFields, $headersPresent);
 	if (count($difference) != 0)
 		throw new Exception("Expected Fields Not Present: " . implode(', ', $difference));
 
 	// Ensure there are no unexpected elements present
-	$difference = array_diff($headersPresent, PATIENT_FIELDS);
+	$difference = array_diff($headersPresent, $patientFields);
 	if (count($difference) != 0)
 		throw new Exception("Unexpected Fields Present: " . implode(', ', $difference));
 
 	// Ensure the elements are in the required order
 	foreach ($headersPresent as $i => $header)
-		if (PATIENT_FIELDS[$i] != $header)
+		if ($patientFields[$i] != $header)
 			throw new Exception("Fields Out of Order Starting with " . $header);
 
 	// Go into the read loop
-	$columnCount = count(PATIENT_FIELDS);
+	$columnCount = count($patientFields);
 	$row = 1;
 	while (($data = fgetcsv($csv)) !== false)
 	{
@@ -74,6 +76,8 @@ function Parse($csv)
 
 function ConvertRow($medwareRow)
 {
+	global $patientFields;
+
 	// Prepare the number of seconds the current timezone is offset from UTC by
 	$timezoneOffset = date('Z');
 
@@ -100,15 +104,15 @@ function ConvertRow($medwareRow)
 	$p['lname'] = $s['Lastname'];
 	$p['fname'] = $s['Firstname'];
 	$p['mname'] = $s['Mi'];
-	$p['suffix7'] = $s['Generation'];
+	$p['suffix'] = $s['Generation'];
 	$p['street'] = $s['Street1'] . "\n" . $s['Street2'];
 	$p['city'] = $s['City'];
 	$p['state'] = $s['State'];
 	$p['postal_code'] = $s['Zip'];
-	$p['phone_home'] = $s['Homephone'];
+	$p['phone_home'] = $s['Homephone'] != 0 ? $s['Homephone'] : '';
 	$p['phone_biz'] = $s['Workphone'] != '' ? ($s['Workphone'] . ' +' . $s['Workextension']) : '';
-	$p['genericval1'] = $s['Billtonum'];
-	$p['genericname2'] = $s['Billtoname'];
+	$p['billtonum'] = $s['Billtonum'];
+	$p['billtoname'] = $s['Billtoname'];
 	// ignore 'Hmo Flag'
 	// TODO: handle legalrep
 	$p['ss'] = $s['Ssn'];
@@ -116,7 +120,7 @@ function ConvertRow($medwareRow)
 	// TODO: handle assistant
 	// TODO: handle referredfrom
 	// NOTE: referraltype was blank in the file used for reverse engineering this mapping
-	$p['DOB'] = gmdate('Y-m-d H-i-s', $this->ConvertTPSDateToTimestamp($s['Birthdate']));
+	$p['DOB'] = gmdate('Y-m-d H-i-s', ConvertTPSDateToTimestamp($s['Birthdate']));
 	$p['sex'] = ($s['Sex'] == 'M' ? 'Male' : 'Female');
 	// TODO: handle feeschedule - is a foreign key into another table
 	$p['status'] = $s['Maritalstatus'] == 'Married' ? 'married' : 'single';
@@ -133,7 +137,7 @@ function ConvertRow($medwareRow)
 	// TODO: handle Admin.residencetype
 	// TODO: handle Admin.classname
 	// TODO: handle Admin.location
-	$p['date'] = gmdate('Y-m-d H-i-s', $this->ConvertTPSDateToTimestamp($s['Dateentered'], $s['Timeentered']) + $timezoneOffset);
+	$p['date'] = gmdate('Y-m-d H-i-s', ConvertTPSDateToTimestamp($s['Dateentered'], $s['Timeentered']) + $timezoneOffset);
 	// TODO: handle Whoentered
 	// TODO: handle Datemodified
 	// TODO: handle Timemodified
@@ -169,19 +173,41 @@ function ConvertRow($medwareRow)
 function Save($row)
 {
 	global $db;
-	
-	$fields = array_keys($row);
 
-	foreach ($fields as &$field)
-		$field = $db->real_escape_string($field);
-	
+	// Save pnotes separately
+	$pnotes = $row['pnotes'];
+	unset($row['pnotes']);
+
+	// Make the values safe
 	foreach ($row as &$value)
-		$value = $db->real_escape_string($value);
+		$value = '"' . $db->real_escape_string($value) . '"';
 	
-	$db->query("INSERT INTO patient_data (".$fields.") VALUES " . $row);
+	// Set pid
+	$row['pid'] = "((SELECT maxpid FROM (SELECT MAX(pid) AS maxpid FROM patient_data) AS subpid)+1)";
+
+	$query = "REPLACE INTO patient_data SET " . implode(',', array_map(function($k, $v){return $k.'='.$v;}, array_keys($row), $row));
+	$db->query($query);
 	
 	if ($db->error)
-		throw new Exception("Save query failed: " . $db->error);
+	{
+		var_dump($row);
+		var_dump($query);
+		throw new Exception("Save Patient Query Failed: " . $db->error);
+	}
+
+	$pid = $db->insert_id;
+
+	foreach ($pnotes as &$pnote)
+		$pnote = '(NOW(), ' . $pid . ', "' . $db->real_escape_string($pnote) . '")';
+
+	$query = "INSERT INTO pnotes (date, pid, body) VALUES " . implode(',', $pnotes);
+	$db->query($query);
+	if ($db->error)
+	{
+		var_dump($insert_pnotes);
+		var_dump($query);
+		throw new Exception("Save PNotes Query Failed: " . $db->error);
+	}
 }
 
 function ConvertTPSDateToTimestamp($tpsdate, $tpstime = 0)
