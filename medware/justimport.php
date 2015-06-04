@@ -101,26 +101,28 @@ function ConvertRow($medwareRow)
 	// Begin the conversion by making a patient note that this patient was converted from Medware
 	$p['pnotes'][] = "This patient was migrated from Medware on " . date('l, F j, Y') . ".";
 
-	$p['lname'] = $s['Lastname'];
-	$p['fname'] = $s['Firstname'];
-	$p['mname'] = $s['Mi'];
+	$p['lname'] = ucwords2($s['Lastname']);
+	$p['fname'] = ucwords2($s['Firstname']);
+	$p['mname'] = ucwords2($s['Mi']);
 	$p['suffix'] = $s['Generation'];
-	$p['street'] = $s['Street1'] . "\n" . $s['Street2'];
-	$p['city'] = $s['City'];
-	$p['state'] = $s['State'];
+	$p['street'] = ucwords2($s['Street1']);
+	$p['street2'] = ucwords2($s['Street2']);
+	$p['city'] = ucwords2($s['City']);
+	$p['state'] = ucwords2($s['State']);
 	$p['postal_code'] = $s['Zip'];
-	$p['phone_home'] = $s['Homephone'] != 0 ? $s['Homephone'] : '';
-	$p['phone_biz'] = $s['Workphone'] != '' ? ($s['Workphone'] . ' +' . $s['Workextension']) : '';
+	$p['phone_home'] = ConvertPhone($s['Homephone']);
+	$p['phone_biz'] = ConvertPhone($s['Workphone'], $s['Workextension']);
+	$p['pid'] = $s['Accountno'];
 	$p['billtonum'] = $s['Billtonum'];
-	$p['billtoname'] = $s['Billtoname'];
+	$p['billtoname'] = ucwords2($s['Billtoname']);
 	// ignore 'Hmo Flag'
 	// TODO: handle legalrep
-	$p['ss'] = $s['Ssn'];
+	$p['ss'] = ($s['Ssn'] == '' || $s['Ssn'] == '000000000') ? '' : $s['Ssn'];
 	// TODO: handle provider
 	// TODO: handle assistant
 	// TODO: handle referredfrom
 	// NOTE: referraltype was blank in the file used for reverse engineering this mapping
-	$p['DOB'] = gmdate('Y-m-d H-i-s', ConvertTPSDateToTimestamp($s['Birthdate']));
+	$p['DOB'] = $s['Birthdate'] != '0' ? gmdate('Y-m-d H-i-s', ConvertTPSDateToTimestamp($s['Birthdate'])) : '';
 	$p['sex'] = ($s['Sex'] == 'M' ? 'Male' : 'Female');
 	// TODO: handle feeschedule - is a foreign key into another table
 	$p['status'] = $s['Maritalstatus'] == 'Married' ? 'married' : 'single';
@@ -157,7 +159,7 @@ function ConvertRow($medwareRow)
 	// TODO: handle String1
 	// TODO: handle String2
 	$p['email'] =  strpos($s['Email'], '@') !== false ? $s['Email'] : '';
-	$p['phone_cell'] = $s['Cellphone'];
+	$p['phone_cell'] = ConvertPhone($s['Cellphone']);
 	// TODO: handle Immzsubmitcons
 	// TODO: handle Immzsubmitconsdate
 	$p['mothersname'] = $s['Mothermaidenname'];
@@ -183,7 +185,7 @@ function Save($row)
 		$value = '"' . $db->real_escape_string($value) . '"';
 	
 	// Set pid
-	$row['pid'] = "((SELECT maxpid FROM (SELECT MAX(pid) AS maxpid FROM patient_data) AS subpid)+1)";
+	//$row['pid'] = "((SELECT maxpid FROM (SELECT MAX(pid) AS maxpid FROM patient_data) AS subpid)+1)";
 
 	$query = "REPLACE INTO patient_data SET " . implode(',', array_map(function($k, $v){return $k.'='.$v;}, array_keys($row), $row));
 	$db->query($query);
@@ -220,6 +222,40 @@ function ConvertTPSDateToTimestamp($tpsdate, $tpstime = 0)
 	$dt = $dt * 86400;		// Multiply the number of days since the Unix epoch by the number of seconds in a day
 	$dt = $dt + ($tpstime / 100);	// Add the time component of the timestamp - we assume UTC, but that might be dangerous
 	return $dt;
+}
+
+function ConvertPhone($phone, $ext = '')
+{
+	if (!is_numeric($phone))
+		return '';
+
+	if (strlen($phone) < 7)
+		return '';
+	
+	if (substr($phone, -7) == '0000000')
+		return '';
+	
+	if (substr($phone, 0, 3) == '000')
+		$phone = substr($phone, -7);
+
+	if ($ext != '')
+		$phone = ' +' . $ext;
+
+	return $phone;
+}
+
+function ucwords2($string)
+{
+	$string = ucwords(strtolower($string));
+	
+	$word_chars = array('-', '\'');
+	foreach ($word_chars as $delimiter)
+	{
+		if (strpos($string, $delimiter) !== false)
+			$string = implode($delimiter, array_map('ucfirst', explode($delimiter, $string)));
+	}
+
+	return $string;
 }
 
 ?>
