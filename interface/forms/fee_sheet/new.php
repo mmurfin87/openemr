@@ -1,10 +1,26 @@
 <?php
-// Copyright (C) 2005-2015 Rod Roark <rod@sunsetsystems.com>
-//
-// This program is free software; you can redistribute it and/or
-// modify it under the terms of the GNU General Public License
-// as published by the Free Software Foundation; either version 2
-// of the License, or (at your option) any later version.
+/*
+* 
+* Fee Sheet Program used to create charges, copays and add diagnosis codes to the encounter
+* 
+* Copyright (C) 2005-2015 Rod Roark <rod@sunsetsystems.com>
+* 
+* LICENSE: This program is free software; you can redistribute it and/or 
+* modify it under the terms of the GNU General Public License 
+* as published by the Free Software Foundation; either version 3 
+* of the License, or (at your option) any later version. 
+* This program is distributed in the hope that it will be useful, 
+* but WITHOUT ANY WARRANTY; without even the implied warranty of 
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the 
+* GNU General Public License for more details. 
+* You should have received a copy of the GNU General Public License 
+* along with this program. If not, see <http://opensource.org/licenses/gpl-license.php>;. 
+* 
+* @package OpenEMR 
+* @author Rod Roark <rod@sunsetsystems.com>
+* @author Terry Hill <terry@lillysystems.com>
+* @link http://www.open-emr.org 
+*/
 
 $fake_register_globals=false;
 $sanitize_all_escapes=true;
@@ -83,6 +99,26 @@ function contraceptionClass($code_type, $code) {
   }
   return $contra;
 }
+# gets the provider from the encounter file , or from the logged on user or from the patient file
+function findProvider() {
+  global $encounter, $pid;   
+  $find_provider = sqlQuery("SELECT provider_id FROM form_encounter " .
+        "WHERE pid = ? AND encounter = ? " .
+        "ORDER BY id DESC LIMIT 1", array($pid,$encounter) );
+  $providerid = $find_provider['provider_id'];
+  if($providerid == 0) {
+   $get_authorized = $_SESSION['userauthorized'];
+   if($get_authorized ==1) {
+      $providerid = $_SESSION[authUserID];
+   }
+  }
+  if($providerid == 0) {
+    $find_provider = sqlQuery("SELECT providerID FROM patient_data " .
+		"WHERE pid = ? ", array($pid) );
+    $providerid = $find_provider['providerID'];
+  }  
+  return $providerid;
+}
 
 // This writes a billing line item to the output page.
 //
@@ -92,6 +128,13 @@ function echoLine($lino, $codetype, $code, $modifier, $ndc_info='',
 {
   global $code_types, $ndc_applies, $ndc_uom_choices, $justinit, $pid;
   global $contraception, $usbillstyle, $hasCharges;
+
+  // If using line item billing and user wishes to default to a selected provider, then do so.
+  if($GLOBALS['default_fee_sheet_line_item_provider'] == 1 && $GLOBALS['support_fee_sheet_line_item_provider'] ==1 ) {
+    if ($provider_id == 0) {
+      $provider_id = 0 + findProvider();
+    }
+  }
 
   if ($codetype == 'COPAY') {
     if (!$code_text) $code_text = 'Cash';
@@ -171,10 +214,17 @@ function echoLine($lino, $codetype, $code, $modifier, $ndc_info='',
       echo "  <td class='billcell' align='center'$usbillstyle>" . text($justify) . "</td>\n";
     }
 
-    // Show provider for this line.
-    echo "  <td class='billcell' align='center'>";
-    genProviderSelect('', '-- '.xl("Default").' --', $provider_id, true);
-    echo "</td>\n";
+    // Show provider for this line (if using line item billing).
+    if($GLOBALS['support_fee_sheet_line_item_provider'] ==1) {
+      echo "  <td class='billcell' align='center'>";
+    }
+    else 
+    {
+      echo "  <td class='billcell' align='center' style='display: none'>";
+    }
+      genProviderSelect('', '-- '.xl("Default").' --', $provider_id, true);
+      echo "</td>\n";
+
     if ($code_types[$codetype]['claim'] && !$code_types[$codetype]['diag']) {
       echo "  <td class='billcell' align='center'$usbillstyle>" .
         htmlspecialchars($notecodes, ENT_NOQUOTES) . "</td>\n";
@@ -234,10 +284,17 @@ function echoLine($lino, $codetype, $code, $modifier, $ndc_info='',
       }
     }
 
-    // Provider drop-list for this line.
-    echo "  <td class='billcell' align='center'>";
-    genProviderSelect("bill[$lino][provid]", '-- '.xl("Default").' --', $provider_id);
-    echo "</td>\n";
+    // Show provider for this line (if using line item billing)
+    if($GLOBALS['support_fee_sheet_line_item_provider'] ==1) {
+      echo "  <td class='billcell' align='center'>";
+    }
+    else 
+    {
+      echo "  <td class='billcell' align='center' style='display: none'>";
+    }
+      genProviderSelect("bill[$lino][provid]", '-- '.xl("Default").' --', $provider_id);
+      echo "</td>\n";
+
     if ($code_types[$codetype]['claim'] && !$code_types[$codetype]['diag']) {
       echo "  <td class='billcell' align='center'$usbillstyle><input type='text' name='bill[".attr($lino)."][notecodes]' " .
         "value='" . htmlspecialchars($notecodes, ENT_QUOTES) . "' maxlength='10' size='8' /></td>\n";
@@ -497,9 +554,13 @@ if (!$alertmsg && ($_POST['bn_save'] || $_POST['bn_save_close'])) {
         $session_id = idSqlStatement("INSERT INTO ar_session(payer_id,user_id,pay_total,payment_type,description,".
           "patient_id,payment_method,adjustment_code,post_to_date) VALUES('0',?,?,'patient','COPAY',?,'','patient_payment',now())",
           array($_SESSION['authId'],$fee,$pid));
-        SqlStatement("INSERT INTO ar_activity (pid,encounter,code_type,code,modifier,payer_type,post_time,post_user,session_id,".
-          "pay_amount,account_code) VALUES (?,?,?,?,?,0,now(),?,?,?,'PCP')",
-          array($pid,$encounter,$ct0,$cod0,$mod0,$_SESSION['authId'],$session_id,$fee));
+
+        sqlBeginTrans();
+        $sequence_no = sqlQuery( "SELECT IFNULL(MAX(sequence_no),0) + 1 AS increment FROM ar_activity WHERE pid = ? AND encounter = ?", array($pid, $encounter));
+        SqlStatement("INSERT INTO ar_activity (pid,encounter,sequence_no,code_type,code,modifier,payer_type,post_time,post_user,session_id,".
+          "pay_amount,account_code) VALUES (?,?,?,?,?,?,0,now(),?,?,?,'PCP')",
+          array($pid,$encounter,$sequence_no['increment'],$ct0,$cod0,$mod0,$_SESSION['authId'],$session_id,$fee));
+        sqlCommitTrans();
       }else{
         //editing copay saved to ar_session and ar_activity
         if($fee < 0){
@@ -523,6 +584,16 @@ if (!$alertmsg && ($_POST['bn_save'] || $_POST['bn_save_close'])) {
       continue;
     }
     $justify   = trim($iter['justify']);
+    # Code to create justification for all codes based on first justification
+    if ($GLOBALS['replicate_justification']=='1' ) {
+      if ($justify !='') {
+         $autojustify =  $justify;
+      }
+    }
+    if ( ($GLOBALS['replicate_justification']=='1') && ($justify == '') && check_is_code_type_justify($code_type) ) {
+        $justify =  $autojustify; 
+    }
+
     $notecodes = trim($iter['notecodes']);
     if ($justify) $justify = str_replace(',', ':', $justify) . ':';
     // $auth      = $iter['auth'] ? "1" : "0";
@@ -969,7 +1040,7 @@ echo " </tr>\n";
 <?php
   foreach ($nofs_code_types as $key => $value) {
     echo "   <option value='" . attr($key) . "'";
-    if ($key == $default_search_type) echo " selected";
+    if ($key == $search_type) echo " selected";
     echo " />" . xlt($value['label']) . "</option>";
   }
 ?>
@@ -1005,7 +1076,15 @@ echo " </tr>\n";
 <?php if (justifiers_are_used()) { ?>
   <td class='billcell' align='center'<?php echo $usbillstyle; ?>><b><?php echo xlt('Justify');?></b></td>
 <?php } ?>
-  <td class='billcell' align='center'><b><?php echo xlt('Provider');?></b></td>
+
+  <?php // Show provider (only if using line item billing) ?>
+  <?php if($GLOBALS['support_fee_sheet_line_item_provider'] ==1) { ?>
+    <td class='billcell' align='center'>
+  <?php } else { ?>
+    <td class='billcell' align='center' style='display: none'>
+  <?php } ?>
+  <b><?php echo xlt('Provider');?></b></td>
+
   <td class='billcell' align='center'<?php echo $usbillstyle; ?>><b><?php echo xlt('Note Codes');?></b></td>
   <td class='billcell' align='center'<?php echo $usbillstyle; ?>><b><?php echo xlt('Auth');?></b></td>
   <td class='billcell' align='center'><b><?php echo xlt('Delete');?></b></td>
@@ -1195,7 +1274,7 @@ if ($_POST['newcodes']) {
 $tmp = sqlQuery("SELECT provider_id, supervisor_id FROM form_encounter " .
   "WHERE pid = ? AND encounter = ? " .
   "ORDER BY id DESC LIMIT 1", array($pid,$encounter) );
-$encounter_provid = 0 + $tmp['provider_id'];
+$encounter_provid = 0 + findProvider();
 $encounter_supid  = 0 + $tmp['supervisor_id'];
 ?>
 </table>

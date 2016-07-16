@@ -43,11 +43,11 @@ $timeslotHeightUnit="px";
                 }
         }
     [-/php-]
-   ,'_blank', 575, 375);
+   ,'_blank', 775, 375);
  }
 
  function oldEvt(eventdate, eventid, pccattype) {
-  dlgopen('add_edit_event.php?date='+eventdate+'&eid=' + eventid+'&prov=' + pccattype, '_blank', 575, 375);
+  dlgopen('add_edit_event.php?date='+eventdate+'&eid=' + eventid+'&prov=' + pccattype, '_blank', 775, 375);
  }
 
  function goPid(pid) {
@@ -121,6 +121,8 @@ $timeslotHeightUnit="px";
  $NEXT_WEEK_URL = $this->_tpl_vars['NEXT_WEEK_URL'];
  $PREV_DAY_URL  = $this->_tpl_vars['PREV_DAY_URL'];
  $NEXT_DAY_URL  = $this->_tpl_vars['NEXT_DAY_URL'];
+ $PREV_MONTH_URL = $this->_tpl_vars['PREV_MONTH_URL'];
+ $NEXT_MONTH_URL = $this->_tpl_vars['NEXT_MONTH_URL'];
 
  $Date =  postcalendar_getDate();
  if (!isset($y)) $y = substr($Date, 0, 4);
@@ -172,7 +174,7 @@ echo dateformat (strtotime($atmp[0]),true);
 
 <div id="viewPicker">
 [-php-]
-echo "   <a href='#' type='button' id='printview' title='" .xl ("Print View"). "' class='css_button'/><span>".xl("Print")."</span></a>\n";
+echo "   <a href='#' type='button' id='printview' title='" .xl ("Print View"). "' class='css_button'/><span>" . xlt("View Printable Version") . "</span></a>\n";
 echo "   <a href='#' type='button' value='" .xl ("Refresh"). "' onclick='javascript:refreshme()' class='css_button'/><span>".xl("Refresh")."</span></a>\n";
 echo "   <a href='#' type='button' id='dayview' title='" .htmlspecialchars( xl('Day View'), ENT_QUOTES). "' class='css_button'/><span>".htmlspecialchars( xl('Day'), ENT_QUOTES)."</span></a>\n";
 echo "   <a href='#' type='button' id='weekview' title='" .htmlspecialchars( xl('Week View'), ENT_QUOTES). "' class='css_button'/><span>".htmlspecialchars( xl('Week'), ENT_QUOTES)."</span></a>\n";
@@ -254,7 +256,7 @@ while ($currdate <= $enddate) {
     if (date('m', $currdate) != $month) {
         $tdClass = "tdOtherMonthDay-small";
     }
-    if ((date('w', $currdate) == 0) || (date('w', $currdate) == 6)) {
+    if (is_weekend_day(date('w', $currdate))) {
         $tdClass = "tdWeekend-small";
     }
 
@@ -280,7 +282,11 @@ while ($currdate <= $enddate) {
     if (date('w', $currdate) == $DOWlist[6]) echo "</tr>\n";
 
     // time correction = plus 1000 seconds, for some unknown reason
-    $currdate += (60*60*24)+1000;
+    //$currdate += (60*60*24)+1000;
+
+    ////////
+    $currdate = strtotime("+1 day", $currdate);
+    ////////
 }
 [-/php-]
 </table>
@@ -403,7 +409,8 @@ foreach ($providers as $provider) {
     // having a 'title' for the TD makes the date appear by the mouse pointer
     // this is nice when all you see are times on the left side and no head
     // row with the dates or day-of-week (DOW)
-    echo "<td class='schedule' title='".htmlspecialchars($provider["fname"],ENT_QUOTES)." ".htmlspecialchars($provider["lname"],ENT_QUOTES)."' date='".date("Ymd",$caldate )."' provider='$providerid'>";
+    $classForWeekend = is_weekend_day(date('w', $caldate)) ? 'weekend-day' : 'work-day';
+    echo "<td class='schedule " . $classForWeekend . "' title='".htmlspecialchars($provider["fname"],ENT_QUOTES)." ".htmlspecialchars($provider["lname"],ENT_QUOTES)."' date='".date("Ymd",$caldate )."' provider='$providerid'>";
     echo "<div class='providerheader'>";
     echo htmlspecialchars($provider['fname'],ENT_QUOTES)." ".htmlspecialchars($provider['lname'],ENT_QUOTES)."</div>";
     echo "<div class='calendar_day'>";
@@ -651,7 +658,7 @@ foreach ($providers as $provider) {
                 if ($comment) $atitle .= " $comment";
                 $divTitle .= "\n[".$atitle ."]";
                 $content .= $catname;
-                if ($event['recurrtype'] == 1) $content .= "<img src='$TPL_IMAGE_PATH/repeating8.png' border='0' style='margin:0px 2px 0px 2px;' title='".htmlspecialchars(xl("Repeating event"),ENT_QUOTES)."' alt='".htmlspecialchars(xl("Repeating event"),ENT_QUOTES)."'>";
+                if ($event['recurrtype'] > 0) $content .= "<img src='{$this->_tpl_vars[TPL_IMAGE_PATH]}/repeating8.png' border='0' style='margin:0px 2px 0px 2px;' title='".htmlspecialchars(xl("Repeating event"),ENT_QUOTES)."' alt='".htmlspecialchars(xl("Repeating event"),ENT_QUOTES)."'>";
                 if ($comment) $content .= " $comment";
             }
             else {
@@ -659,7 +666,7 @@ foreach ($providers as $provider) {
                 $divTitle .= "\r\n[".$catname.' '.htmlspecialchars($comment, ENT_QUOTES) ."]".htmlspecialchars($fname, ENT_QUOTES)." ".htmlspecialchars($lname, ENT_QUOTES);
                 $content .= "<span class='appointment'>";
                 $content .= create_event_time_anchor($dispstarth.":".$startm);
-                if ($event['recurrtype'] == 1) $content .= "<img src='$TPL_IMAGE_PATH/repeating8.png' border='0' style='margin:0px 2px 0px 2px;' title='".htmlspecialchars(xl("Repeating event"),ENT_QUOTES)."' alt='".htmlspecialchars(xl("Repeating event"),ENT_QUOTES)."'>";
+                if ($event['recurrtype'] > 0) $content .= "<img src='{$this->_tpl_vars[TPL_IMAGE_PATH]}/repeating8.png' border='0' style='margin:0px 2px 0px 2px;' title='".htmlspecialchars(xl("Repeating event"),ENT_QUOTES)."' alt='".htmlspecialchars(xl("Repeating event"),ENT_QUOTES)."'>";
                 // $content .= htmlspecialchars($event['apptstatus']);
                 $content .= '&nbsp;'.htmlspecialchars($event['apptstatus']);
                 if ($patientid) {
@@ -667,7 +674,7 @@ foreach ($providers as $provider) {
                     $link_title .= xl('Age') . ": ".$patient_age."\n" . xl('DOB') . ": ".$patient_dob.htmlspecialchars($comment, ENT_QUOTES)."\n";
                     $link_title .= "(" . xl('Click to view') . ")";
                     $content .= "<a href='javascript:goPid($patientid)' title='$link_title'>";
-                    $content .= "<img src='$TPL_IMAGE_PATH/user-green.gif' border='0' title='$link_title' alt='View Patient' />";
+                    $content .= "<img src='{$this->_tpl_vars[TPL_IMAGE_PATH]}/user-green.gif' border='0' title='$link_title' alt='View Patient' />";
                     if ($catid == 1) $content .= "<strike>";
                     $content .= htmlspecialchars($lname);
                     if ($GLOBALS['calendar_appt_style'] != 1) {
@@ -708,7 +715,7 @@ foreach ($providers as $provider) {
               echo $content;
               echo "</div>\n";
           }
-  
+
           // output the DIV and content
           // For "OUT" events, applying the background color in CSS.
           $background_string= ($event['catid'] == 3) ? "" : "; background-color:".$color;
@@ -770,7 +777,7 @@ foreach ($providers as $provider) {
                echo $content;
                echo "</div>\n";
            }
-   
+
            // output the DIV and content
            echo "<div class='".$evtClass." event' style='top:".$evtTop."; height:".$evtHeight.
                "; background-color:#DDDDDD".

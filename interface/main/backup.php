@@ -14,14 +14,8 @@
 // * an OpenEMR database dump (gzipped)
 // * a phpGACL database dump (gzipped), if phpGACL is used and has
 //   its own database
-// * a SQL-Ledger database dump (gzipped), if SQL-Ledger is used
-//   (currently skipped on Windows servers)
 // * the OpenEMR web directory (.tar.gz)
 // * the phpGACL web directory (.tar.gz), if phpGACL is used
-// * the SQL-Ledger web directory (.tar.gz), if SQL-Ledger is used
-//   and its web directory exists as a sister of the openemr directory
-//   and has the name "sql-ledger" (otherwise we do not have enough
-//   information to find it)
 //
 // The OpenEMR web directory is important because it includes config-
 // uration files, patient documents, and possible customizations, and
@@ -49,8 +43,8 @@ if (!function_exists('gzopen') && function_exists('gzopen64'))
         return gzopen64($filename, $mode, $use_include_path);
       }
     }
-
-
+    
+    
 if (!acl_check('admin', 'super')) die(xl('Not authorized','','','!'));
 
 include_once("Archive/Tar.php");
@@ -95,7 +89,7 @@ $EXPORT_FILE = $GLOBALS['temporary_files_dir'] . "/openemr_config.sql";
 $MYSQL_PATH = $GLOBALS['mysql_bin_dir'];
 $PERL_PATH = $GLOBALS['perl_bin_dir'];
 
-if ($form_step == 8) {
+if ($form_step == 6) {
   header("Pragma: public");
   header("Expires: 0");
   header("Cache-Control: must-revalidate, post-check=0, pre-check=0");
@@ -222,30 +216,6 @@ if ($form_step == 2) {
 }
 
 if ($form_step == 3) {
-  if ($GLOBALS['oer_config']['ws_accounting']['enabled'] &&
-      $GLOBALS['oer_config']['ws_accounting']['enabled'] !== 2) {
-    if (IS_WINDOWS) {
-      // Somebody may want to make this work in Windows, if they have SQL-Ledger set up.
-      $form_status .= xl('Skipping SQL-Ledger dump - not implemented for Windows server') . "...<br />";
-      echo nl2br($form_status);
-      ++$form_step;
-    }
-    else {
-      $form_status .= xl('Dumping SQL-Ledger database') . "...<br />";
-      echo nl2br($form_status);
-      $file_to_compress = "$BACKUP_DIR/sql-ledger.sql";   // gzip this file after creation
-      $cmd = "PGPASSWORD=" . escapeshellarg($sl_dbpass) . " pg_dump -U " .
-        escapeshellarg($sl_dbuser) . " -h localhost --format=c -f " .
-        "$file_to_compress " . escapeshellarg($sl_dbname);
-      $auto_continue = true;
-    }
-  }
-  else {
-    ++$form_step;
-  }
-}
-
-if ($form_step == 4) {
   $form_status .= xl('Dumping OpenEMR web directory tree') . "...<br />";
   echo nl2br($form_status);
   $cur_dir = getcwd();
@@ -275,7 +245,7 @@ if ($form_step == 4) {
   $auto_continue = true;
 }
 
-if ($form_step == 5) {
+if ($form_step == 4) {
   if ((!empty($phpgacl_location)) && ($phpgacl_location != $srcdir."/../gacl") ) {
     $form_status .= xl('Dumping phpGACL web directory tree') . "...<br />";
     echo nl2br($form_status);
@@ -293,28 +263,7 @@ if ($form_step == 5) {
   }
 }
 
-if ($form_step == 6) {
-  if ($GLOBALS['oer_config']['ws_accounting']['enabled'] &&
-    $GLOBALS['oer_config']['ws_accounting']['enabled'] !== 2 &&
-    is_dir("$webserver_root/../sql-ledger"))
-  {
-    $form_status .= xl('Dumping SQL-Ledger web directory tree') . "...<br />";
-    echo nl2br($form_status);
-    $cur_dir = getcwd();
-    $arch_dir = $webserver_root . DIRECTORY_SEPARATOR . ".." . DIRECTORY_SEPARATOR . "sql-ledger";
-    chdir($arch_dir);
-    $file_list = array('.');    // archive entire directory
-    $arch_file = $BACKUP_DIR . DIRECTORY_SEPARATOR . "sql-ledger.tar.gz";
-    if (!create_tar_archive($arch_file, "gz", $file_list))
-      die(xl("An error occurred while dumping SQL-Ledger web directory tree"));
-    chdir($cur_dir);
-    $auto_continue = true;
-  }
-  else {
-    ++$form_step;
-  }
-}
-if ($form_step == 7) {   // create the final compressed tar containing all files
+if ($form_step == 5) {   // create the final compressed tar containing all files
   $form_status .= xl('Backup file has been created. Will now send download.') . "<br />";
   echo nl2br($form_status);
   $cur_dir = getcwd();
@@ -377,7 +326,8 @@ if ($form_step == 101) {
   echo "&nbsp;<br /><input type='submit' value='" . xl('Continue') . "' />\n";
 }
 
-if ($form_step == 102) {
+if ($form_step == 102) 
+{
   $tables = '';
   if ($_POST['form_cb_services'  ]) $tables .= ' codes';
   if ($_POST['form_cb_products'  ]) $tables .= ' drugs drug_templates';
@@ -385,56 +335,136 @@ if ($form_step == 102) {
   if ($_POST['form_cb_categories']) $tables .= ' categories categories_seq';
   if ($_POST['form_cb_feesheet'  ]) $tables .= ' fee_sheet_options';
   if ($_POST['form_cb_lang'      ]) $tables .= ' lang_languages lang_constants lang_definitions';
-  if ($tables || is_array($_POST['form_sel_lists']) || is_array($_POST['form_sel_layouts'])) {
+  if ($tables || is_array($_POST['form_sel_lists']) || is_array($_POST['form_sel_layouts'])) 
+  {
     $form_status .= xl('Creating export file') . "...<br />";
     echo nl2br($form_status);
-    if (file_exists($EXPORT_FILE)) {
+    if (file_exists($EXPORT_FILE)) 
+    {
       if (! unlink($EXPORT_FILE)) die(xl("Couldn't remove old export file: ") . $EXPORT_FILE);
     }
-    $cmd = "echo 'SET character_set_client = utf8;' > $EXPORT_FILE;";
     // The substitutions below use perl because sed's not usually on windows systems.
     $perl = $PERL_PATH . DIRECTORY_SEPARATOR . 'perl';
-    if ($tables) {
-      $cmd .= "$mysql_dump_cmd -u " . escapeshellarg($sqlconf["login"]) .
-        " -p" . escapeshellarg($sqlconf["pass"]) .
-        " --opt --quote-names " .
-        escapeshellarg($sqlconf["dbase"]) . " $tables" .
-        " | $perl -pe 's/ DEFAULT CHARSET=utf8//i; s/ collate[ =][^ ;,]*//i;'" .
-        " >> $EXPORT_FILE;";
+
+
+    # This condition was added because the windows operating system uses different syntax for the shell commands.
+    # The test is if it is the windows operating system.
+    if (IS_WINDOWS) 
+    {
+      # This section sets the character_set_client to utf8 in the sql file as part or the import property.
+      # windows will place the quotes in the outputted code if they are there. we removed them here.      
+      $cmd = "echo SET character_set_client = utf8; > $EXPORT_FILE & ";
     }
-    $dumppfx = "$mysql_dump_cmd -u " . escapeshellarg($sqlconf["login"]) .
-      " -p" . escapeshellarg($sqlconf["pass"]) .
-      " --skip-opt --quote-names --complete-insert --no-create-info";
-    // Individual lists.
-    if (is_array($_POST['form_sel_lists'])) {
-      foreach ($_POST['form_sel_lists'] as $listid) {
-        $cmd .= "echo \"DELETE FROM list_options WHERE list_id = '$listid';\" >> $EXPORT_FILE;";
-        $cmd .= "echo \"DELETE FROM list_options WHERE list_id = 'lists' AND option_id = '$listid';\" >> $EXPORT_FILE;";
-        $cmd .= $dumppfx .
-          " --where=\"list_id = 'lists' AND option_id = '$listid' OR list_id = '$listid'\" " .
-          escapeshellarg($sqlconf["dbase"]) . " list_options" .
-          " >> $EXPORT_FILE;";
-      }
-    }
-    // Individual layouts.
-    if (is_array($_POST['form_sel_layouts'])) {
-      foreach ($_POST['form_sel_layouts'] as $layoutid) {
-        $cmd .= "echo \"DELETE FROM layout_options WHERE form_id = '$layoutid';\" >> $EXPORT_FILE;";
-        if (strpos($layoutid, 'LBF') === 0) {
-          $cmd .= "echo \"DELETE FROM list_options WHERE list_id = 'lbfnames' AND option_id = '$layoutid';\" >> $EXPORT_FILE;";
+    else
+    {
+      $cmd = "echo 'SET character_set_client = utf8;' > $EXPORT_FILE;";
+    } 
+      if ($tables) 
+      {
+        $cmd .= "$mysql_dump_cmd -u " . escapeshellarg($sqlconf["login"]) .
+                " -p" . escapeshellarg($sqlconf["pass"]) .
+                " --opt --quote-names " .
+                escapeshellarg($sqlconf["dbase"]) . " $tables";
+                if (IS_WINDOWS) 
+                {
+                  # The Perl script differs in windows also.
+                  $cmd .= " | $perl -pe \"s/ DEFAULT CHARSET=utf8//i; s/ collate[ =][^ ;,]*//i;\"" .
+                  " >> $EXPORT_FILE & ";
+                }
+                else
+                {                   
+                  $cmd .= " | $perl -pe 's/ DEFAULT CHARSET=utf8//i; s/ collate[ =][^ ;,]*//i;'" .
+                  " > $EXPORT_FILE;";
+                }
+      } 
+      $dumppfx = "$mysql_dump_cmd -u " . escapeshellarg($sqlconf["login"]) .
+                 " -p" . escapeshellarg($sqlconf["pass"]) .
+                 " --skip-opt --quote-names --complete-insert --no-create-info";
+      // Individual lists.
+      if (is_array($_POST['form_sel_lists'])) 
+      {
+        foreach ($_POST['form_sel_lists'] as $listid) 
+        {
+          if (IS_WINDOWS) 
+          {
+            # windows will place the quotes in the outputted code if they are there. we removed them here.
+            $cmd .= " echo DELETE FROM list_options WHERE list_id = '$listid'; >> $EXPORT_FILE & ";
+            $cmd .= " echo DELETE FROM list_options WHERE list_id = 'lists' AND option_id = '$listid'; >> $EXPORT_FILE & ";     
+          }
+          else
+          {
+            $cmd .= "echo \"DELETE FROM list_options WHERE list_id = '$listid';\" >> $EXPORT_FILE;";
+            $cmd .= "echo \"DELETE FROM list_options WHERE list_id = 'lists' AND option_id = '$listid';\" >> $EXPORT_FILE;";
+          }
           $cmd .= $dumppfx .
-            " --where=\"list_id = 'lbfnames' AND option_id = '$layoutid'\" " .
-            escapeshellarg($sqlconf["dbase"]) . " list_options" .
-            " >> $EXPORT_FILE;";
+            " --where=\"list_id = 'lists' AND option_id = '$listid' OR list_id = '$listid'\" " .
+            escapeshellarg($sqlconf["dbase"]) . " list_options";
+            if (IS_WINDOWS) 
+            {
+              # windows uses the & to join statements.
+              $cmd .=  " >> $EXPORT_FILE & ";    
+            }
+            else
+            {
+              $cmd .=  " >> $EXPORT_FILE;";
+            }
         }
-        $cmd .= $dumppfx .
-          " --where=\"form_id = '$layoutid'\" " .
-          escapeshellarg($sqlconf["dbase"]) . " layout_options" .
-          " >> $EXPORT_FILE;";
       }
-    }
+      // Individual layouts.
+      if (is_array($_POST['form_sel_layouts'])) 
+      {
+        foreach ($_POST['form_sel_layouts'] as $layoutid) 
+        {
+          if (IS_WINDOWS) 
+          {
+            # windows will place the quotes in the outputted code if they are there. we removed them here.
+            $cmd .= " echo DELETE FROM layout_options WHERE form_id = '$layoutid'; >> $EXPORT_FILE & ";              
+          }
+          else
+          {
+            $cmd .= "echo \"DELETE FROM layout_options WHERE form_id = '$layoutid';\" >> $EXPORT_FILE;";
+          }
+          if (strpos($layoutid, 'LBF') === 0) 
+          {
+           if (IS_WINDOWS) 
+           {
+             # windows will place the quotes in the outputted code if they are there. we removed them here.
+             $cmd .= " echo DELETE FROM list_options WHERE list_id = 'lbfnames' AND option_id = '$layoutid'; >> $EXPORT_FILE & ";
+           }
+           else
+           {
+             $cmd .= "echo \"DELETE FROM list_options WHERE list_id = 'lbfnames' AND option_id = '$layoutid';\" >> $EXPORT_FILE;";
+           } 
+            $cmd .= $dumppfx .
+              " --where=\"list_id = 'lbfnames' AND option_id = '$layoutid'\" " .
+              escapeshellarg($sqlconf["dbase"]) . " list_options" ;
+            if (IS_WINDOWS) 
+            {
+              # windows uses the & to join statements.
+             $cmd .=  " >> $EXPORT_FILE & ";    
+            }
+            else
+            {
+             $cmd .=  " >> $EXPORT_FILE;";
+            }
+          }
+          $cmd .= $dumppfx .
+            " --where=\"form_id = '$layoutid'\" " .
+            escapeshellarg($sqlconf["dbase"]) . " layout_options" ;
+            if (IS_WINDOWS) 
+            {
+              # windows uses the & to join statements.
+             $cmd .=  " >> $EXPORT_FILE & ";    
+            }
+            else
+            {
+             $cmd .=  " >> $EXPORT_FILE;";
+            }
+        }
+      }      
   }
-  else {
+  else 
+  {
     echo xl('No items were selected!');
     $form_step = -1;
   }
@@ -502,13 +532,15 @@ $BACKUP_EVENTLOG_DIR = $GLOBALS['backup_log_dir'] . "/emr_eventlog_backup";
 # Frame the Eventlog Backup File Name
 $BACKUP_EVENTLOG_FILE=$BACKUP_EVENTLOG_DIR.'/eventlog_'.$backuptime.'.sql';
 # Create a new table similar to event table, rename the existing table as backup table, and rename the new table to event log table.  Then export the contents of the table into a text file and drop the table.
+$res=sqlStatement("create table if not exists log_comment_encrypt_new like log_comment_encrypt");
+$res=sqlStatement("rename table log_comment_encrypt to log_comment_encrypt_backup,log_comment_encrypt_new to log_comment_encrypt");
 $res=sqlStatement("create table if not exists log_new like log");
 $res=sqlStatement("rename table log to log_backup,log_new to log");
 echo "<br>";
   $cmd = "$mysql_dump_cmd -u " . escapeshellarg($sqlconf["login"]) .
     " -p" . escapeshellarg($sqlconf["pass"]) .
     " --opt --quote-names -r $BACKUP_EVENTLOG_FILE " .
-    escapeshellarg($sqlconf["dbase"]) ." --tables log_backup";
+    escapeshellarg($sqlconf["dbase"]) ." --tables log_comment_encrypt_backup log_backup";
 # Set Eventlog Flag when it is done
 $eventlog=1;
 // 301 If ends here.
@@ -537,6 +569,8 @@ if ($cmd) {
     if ($eventlog==1)
      {
 	// ViSolve : Restore previous state, if backup fails.
+         $res=sqlStatement("drop table if exists log_comment_encrypt");
+       	 $res=sqlStatement("rename table log_comment_encrypt_backup to log_comment_encrypt");
          $res=sqlStatement("drop table if exists log");
          $res=sqlStatement("rename table log_backup to log");
      }
@@ -545,6 +579,7 @@ if ($cmd) {
   //  ViSolve:  If the Eventlog is set, then clear the temporary table  -- Start here
   if ($eventlog==1)       {
         $res=sqlStatement("drop table if exists log_backup");
+        $res=sqlStatement("drop table if exists log_comment_encrypt_backup");
         echo "<br><b>";
         echo xl('Backup Successfully taken in')." ";
         echo  $BACKUP_EVENTLOG_DIR; 

@@ -39,16 +39,38 @@ $fake_register_globals=false;
  require_once("$srcdir/edi.inc");
  require_once("$srcdir/invoice_summary.inc.php");
  require_once("$srcdir/clinical_rules.php");
-
+ require_once("$srcdir/options.js.php");
+ ////////////
+ require_once(dirname(__FILE__)."/../../../library/appointments.inc.php");
+ 
   if ($GLOBALS['concurrent_layout'] && isset($_GET['set_pid'])) {
   include_once("$srcdir/pid.inc");
   setpid($_GET['set_pid']);
  }
 
   $active_reminders = false;
-  if ((!isset($_SESSION['alert_notify_pid']) || ($_SESSION['alert_notify_pid'] != $pid)) && isset($_GET['set_pid']) && acl_check('patients', 'med') && $GLOBALS['enable_cdr'] && $GLOBALS['enable_cdr_crp']) {
-    // showing a new patient, so check for active reminders
-    $active_reminders = active_alert_summary($pid,"reminders-due");
+  $all_allergy_alerts = false;
+  if ($GLOBALS['enable_cdr']) {
+    //CDR Engine stuff
+    if ($GLOBALS['enable_allergy_check'] && $GLOBALS['enable_alert_log']) {
+      //Check for new allergies conflicts and throw popup if any exist(note need alert logging to support this)
+      $new_allergy_alerts = allergy_conflict($pid,'new',$_SESSION['authUser']);
+      if (!empty($new_allergy_alerts)) {
+        $pop_warning = '<script type="text/javascript">alert(\'' . xls('WARNING - FOLLOWING ACTIVE MEDICATIONS ARE ALLERGIES') . ':\n';
+        foreach ($new_allergy_alerts as $new_allergy_alert) {
+          $pop_warning .= addslashes($new_allergy_alert) . '\n';
+        }
+        $pop_warning .= '\')</script>';
+        echo $pop_warning;
+      }
+    }
+    if ((!isset($_SESSION['alert_notify_pid']) || ($_SESSION['alert_notify_pid'] != $pid)) && isset($_GET['set_pid']) && $GLOBALS['enable_cdr_crp']) {
+      // showing a new patient, so check for active reminders and allergy conflicts, which use in active reminder popup
+      $active_reminders = active_alert_summary($pid,"reminders-due",'','default',$_SESSION['authUser'],TRUE);
+      if ($GLOBALS['enable_allergy_check']) {
+        $all_allergy_alerts = allergy_conflict($pid,'all',$_SESSION['authUser'],TRUE);
+      }
+    }
   }
 
 function print_as_money($money) {
@@ -103,16 +125,17 @@ function image_widget($doc_id,$doc_catg)
         global $pid, $web_root;
         $docobj = new Document($doc_id);
         $image_file = $docobj->get_url_file();
+        $image_width = $GLOBALS['generate_doc_thumb'] == 1 ? '' : 'width=100';
         $extension = substr($image_file, strrpos($image_file,"."));
         $viewable_types = array('.png','.jpg','.jpeg','.png','.bmp','.PNG','.JPG','.JPEG','.PNG','.BMP'); // image ext supported by fancybox viewer
         if ( in_array($extension,$viewable_types) ) { // extention matches list
                 $to_url = "<td> <a href = $web_root" .
-				"/controller.php?document&retrieve&patient_id=$pid&document_id=$doc_id" .
-				"/tmp$extension" .  // Force image type URL for fancybox
+				"/controller.php?document&retrieve&patient_id=$pid&document_id=$doc_id&as_file=false&original_file=true&disable_exit=false&show_original=true" .
+				"/tmp$extension" .  // Force image type URL for fancybo
 				" onclick=top.restoreSession(); class='image_modal'>" .
                 " <img src = $web_root" .
-				"/controller.php?document&retrieve&patient_id=$pid&document_id=$doc_id" .
-				" width=100 alt='$doc_catg:$image_file'>  </a> </td> <td valign='center'>".
+				"/controller.php?document&retrieve&patient_id=$pid&document_id=$doc_id&as_file=false" .
+				" $image_width alt='$doc_catg:$image_file'>  </a> </td> <td valign='center'>".
                 htmlspecialchars($doc_catg) . '<br />&nbsp;' . htmlspecialchars($image_file) .
 				"</td>";
         }
@@ -163,9 +186,9 @@ if ($result3['provider']) {   // Use provider in case there is an ins record w/ 
 <script type="text/javascript" language="JavaScript">
 
  var mypcc = '<?php echo htmlspecialchars($GLOBALS['phone_country_code'],ENT_QUOTES); ?>';
-
- function oldEvt(eventid) {
-  dlgopen('../../main/calendar/add_edit_event.php?eid=' + eventid, '_blank', 550, 350);
+ //////////
+ function oldEvt(apptdate, eventid) {
+  dlgopen('../../main/calendar/add_edit_event.php?date=' + apptdate + '&eid=' + eventid, '_blank', 775, 375);
  }
 
  function advdirconfigure() {
@@ -193,32 +216,8 @@ if ($result3['provider']) {   // Use provider in case there is an ins record w/ 
 <?php } ?>
  }
 
- function validate() {
-  var f = document.forms[0];
-<?php
-if ($GLOBALS['athletic_team']) {
-  echo "  if (f.form_userdate1.value != f.form_original_userdate1.value) {\n";
-  $irow = sqlQuery("SELECT id, title FROM lists WHERE " .
-    "pid = ? AND enddate IS NULL ORDER BY begdate DESC LIMIT 1", array($pid));
-  if (!empty($irow)) {
-?>
-   if (confirm('Do you wish to also set this new return date in the issue titled "<?php echo htmlspecialchars($irow['title'],ENT_QUOTES); ?>"?')) {
-    f.form_issue_id.value = '<?php echo htmlspecialchars($irow['id'],ENT_QUOTES); ?>';
-   } else {
-    alert('OK, you will need to manually update the return date in any affected issue(s).');
-   }
-<?php } else { ?>
-   alert('You have changed the return date but there are no open issues. You probably need to create or modify one.');
-<?php
-  } // end empty $irow
-  echo "  }\n";
-} // end athletic team
-?>
-  return true;
- }
-
  function newEvt() {
-  dlgopen('../../main/calendar/add_edit_event.php?patientid=<?php echo htmlspecialchars($pid,ENT_QUOTES); ?>', '_blank', 550, 350);
+  dlgopen('../../main/calendar/add_edit_event.php?patientid=<?php echo htmlspecialchars($pid,ENT_QUOTES); ?>', '_blank', 775, 375);
   return false;
  }
 
@@ -401,7 +400,7 @@ $(document).ready(function(){
             'centerOnScroll' : false
   });
 
-  <?php if ($active_reminders) { ?>
+  <?php if ($active_reminders || $all_allergy_alerts) { ?>
     // show the active reminder modal
     $("#reminder_popup_link").fancybox({
       'overlayOpacity' : 0.0,
@@ -450,6 +449,15 @@ function setMyPatient() {
 <?php } // end setting new pid ?>
  parent.left_nav.setRadio(window.name, 'dem');
  parent.left_nav.syncRadios();
+<?php if ( (isset($_GET['set_pid']) ) && (isset($_GET['set_encounterid'])) && ( intval($_GET['set_encounterid']) > 0 ) ) {
+ $encounter = intval($_GET['set_encounterid']);
+ $_SESSION['encounter'] = $encounter; 
+ $query_result = sqlQuery("SELECT `date` FROM `form_encounter` WHERE `encounter` = ?", array($encounter)); ?>
+ var othername = (window.name == 'RTop') ? 'RBot' : 'RTop';
+ parent.left_nav.setEncounter('<?php echo oeFormatShortDate(date("Y-m-d", strtotime($query_result['date']))); ?>', '<?php echo attr($encounter); ?>', othername);
+ parent.left_nav.setRadio(othername, 'enc');
+ parent.frames[othername].location.href = '../encounter/encounter_top.php?set_encounter=' + <?php echo attr($encounter);?> + '&pid=' + <?php echo attr($pid);?>;
+<?php } // end setting new encounter id (only if new pid is also set) ?>
 <?php } // end concurrent layout ?>
 }
 
@@ -468,87 +476,125 @@ $(window).load(function() {
 
 </head>
 
-<body class="body_top">
+<body class="body_top patient-demographics">
 
 <a href='../reminder/active_reminder_popup.php' id='reminder_popup_link' style='visibility: false;' class='iframe' onclick='top.restoreSession()'></a>
 
 <?php
- $thisauth = acl_check('patients', 'demo');
- if ($thisauth) {
-  if ($result['squad'] && ! acl_check('squads', $result['squad']))
-   $thisauth = 0;
- }
- if (!$thisauth) {
-  echo "<p>(" . htmlspecialchars(xl('Demographics not authorized'),ENT_NOQUOTES) . ")</p>\n";
-  echo "</body>\n</html>\n";
-  exit();
- }
- if ($thisauth) {
-  echo "<table><tr><td><span class='title'>" .
-   htmlspecialchars(getPatientName($pid),ENT_NOQUOTES) .
-   "</span></td>";
-
-  if (acl_check('admin', 'super')) {
-   echo "<td style='padding-left:1em;'><a class='css_button iframe' href='../deleter.php?patient=" . 
-    htmlspecialchars($pid,ENT_QUOTES) . "' onclick='top.restoreSession()'>" .
-    "<span>".htmlspecialchars(xl('Delete'),ENT_NOQUOTES).
-    "</span></a></td>";
-  }
-  if($GLOBALS['erx_enable']){
-	echo '<td style="padding-left:1em;"><a class="css_button" href="../../eRx.php?page=medentry" onclick="top.restoreSession()">';
-	echo "<span>".htmlspecialchars(xl('NewCrop MedEntry'),ENT_NOQUOTES)."</span></a></td>";
-	echo '<td style="padding-left:1em;"><a class="css_button iframe1" href="../../soap_functions/soap_accountStatusDetails.php" onclick="top.restoreSession()">';
-	echo "<span>".htmlspecialchars(xl('NewCrop Account Status'),ENT_NOQUOTES)."</span></a></td><td id='accountstatus'></td>";
-   }
-  //Patient Portal
-  $portalUserSetting = true; //flag to see if patient has authorized access to portal
-  if($GLOBALS['portal_onsite_enable'] && $GLOBALS['portal_onsite_address']){
-    $portalStatus = sqlQuery("SELECT allow_patient_portal FROM patient_data WHERE pid=?",array($pid));
-    if ($portalStatus['allow_patient_portal']=='YES') {
-      $portalLogin = sqlQuery("SELECT pid FROM `patient_access_onsite` WHERE `pid`=?", array($pid));
-      echo "<td style='padding-left:1em;'><a class='css_button iframe small_modal' href='create_portallogin.php?portalsite=on&patient=" . htmlspecialchars($pid,ENT_QUOTES) . "' onclick='top.restoreSession()'>";
-      if (empty($portalLogin)) {
-        echo "<span>".htmlspecialchars(xl('Create Onsite Portal Credentials'),ENT_NOQUOTES)."</span></a></td>";
-      }
-      else {
-        echo "<span>".htmlspecialchars(xl('Reset Onsite Portal Credentials'),ENT_NOQUOTES)."</span></a></td>";
-      }
+$thisauth = acl_check('patients', 'demo');
+if ($thisauth) {
+    if ($result['squad'] && ! acl_check('squads', $result['squad'])) {
+        $thisauth = 0;
     }
-    else {
-      $portalUserSetting = false;
-    }
-  }
-  if($GLOBALS['portal_offsite_enable'] && $GLOBALS['portal_offsite_address']){
-    $portalStatus = sqlQuery("SELECT allow_patient_portal FROM patient_data WHERE pid=?",array($pid));
-    if ($portalStatus['allow_patient_portal']=='YES') {
-      $portalLogin = sqlQuery("SELECT pid FROM `patient_access_offsite` WHERE `pid`=?", array($pid));
-      echo "<td style='padding-left:1em;'><a class='css_button iframe small_modal' href='create_portallogin.php?portalsite=off&patient=" . htmlspecialchars($pid,ENT_QUOTES) . "' onclick='top.restoreSession()'>";
-      if (empty($portalLogin)) {
-        echo "<span>".htmlspecialchars(xl('Create Offsite Portal Credentials'),ENT_NOQUOTES)."</span></a></td>";
-      }
-      else {
-        echo "<span>".htmlspecialchars(xl('Reset Offsite Portal Credentials'),ENT_NOQUOTES)."</span></a></td>";
-      }
-    }
-    else {
-      $portalUserSetting = false;
-    }
-  }
-  if (!($portalUserSetting)) {
-    // Show that the patient has not authorized portal access
-    echo "<td style='padding-left:1em;'>" . htmlspecialchars( xl('Patient has not authorized the Patient Portal.'), ENT_NOQUOTES) . "</td>";
-  }
-  //Patient Portal
+}
+if (!$thisauth) {
+    echo "<p>(" . htmlspecialchars(xl('Demographics not authorized'),ENT_NOQUOTES) . ")</p>\n";
+    echo "</body>\n</html>\n";
+    exit();
+}
+if ($thisauth): ?>
 
-  // If patient is deceased, then show this (along with the number of days patient has been deceased for)
-  $days_deceased = is_patient_deceased($pid);
-  if ($days_deceased) {
-    echo "<td style='padding-left:1em;font-weight:bold;color:red'>" . htmlspecialchars( xl('DECEASED') ,ENT_NOQUOTES) . " (" . htmlspecialchars($days_deceased,ENT_NOQUOTES) . " " .  htmlspecialchars( xl('days ago') ,ENT_NOQUOTES) . ")</td>";
-  }
+<table class="table_header">
+    <tr>
+        <td>
+            <span class='title'>
+                <?php echo htmlspecialchars(getPatientName($pid),ENT_NOQUOTES); ?>
+            </span>
+        </td>
+        <?php if (acl_check('admin', 'super') && $GLOBALS['allow_pat_delete']) : ?>
+        <td style='padding-left:1em;' class="delete">
+            <a class='css_button iframe' 
+               href='../deleter.php?patient="<?php echo htmlspecialchars($pid,ENT_QUOTES);?>' 
+               onclick='top.restoreSession()'>
+                <span><?php echo htmlspecialchars(xl('Delete'),ENT_NOQUOTES);?></span>
+            </a>
+        </td>
+        <?php endif; // Allow PT delete
+        if($GLOBALS['erx_enable']): ?>
+        <td style="padding-left:1em;" class="erx">
+            <a class="css_button" href="../../eRx.php?page=medentry" onclick="top.restoreSession()">
+                <span><?php echo htmlspecialchars(xl('NewCrop MedEntry'),ENT_NOQUOTES);?></span>
+            </a>
+        </td>
+        <td style="padding-left:1em;">
+            <a class="css_button iframe1" 
+               href="../../soap_functions/soap_accountStatusDetails.php" 
+               onclick="top.restoreSession()">
+                <span><?php echo htmlspecialchars(xl('NewCrop Account Status'),ENT_NOQUOTES);?></span>
+            </a>
+        </td>
+        <td id='accountstatus'></td>
+        <?php endif; // eRX Enabled
+        //Patient Portal
+        $portalUserSetting = true; //flag to see if patient has authorized access to portal
+        if($GLOBALS['portal_onsite_enable'] && $GLOBALS['portal_onsite_address']):
+            $portalStatus = sqlQuery("SELECT allow_patient_portal FROM patient_data WHERE pid=?",array($pid));
+            if ($portalStatus['allow_patient_portal']=='YES'):
+                $portalLogin = sqlQuery("SELECT pid FROM `patient_access_onsite` WHERE `pid`=?", array($pid));?>
+                <td style='padding-left:1em;'>
+                    <a class='css_button iframe small_modal' 
+                       href='create_portallogin.php?portalsite=on&patient=<?php echo htmlspecialchars($pid,ENT_QUOTES);?>' 
+                       onclick='top.restoreSession()'>
+                        <?php $display = (empty($portalLogin)) ? xlt('Create Onsite Portal Credentials') : xlt('Reset Onsite Portal Credentials'); ?>
+                        <span><?php echo $display; ?></span>
+                    </a>
+                </td>
+            <?php
+            else:
+                $portalUserSetting = false;
+            endif; // allow patient portal
+        endif; // Onsite Patient Portal
+        if($GLOBALS['portal_offsite_enable'] && $GLOBALS['portal_offsite_address']):
+            $portalStatus = sqlQuery("SELECT allow_patient_portal FROM patient_data WHERE pid=?",array($pid));
+            if ($portalStatus['allow_patient_portal']=='YES'):
+                $portalLogin = sqlQuery("SELECT pid FROM `patient_access_offsite` WHERE `pid`=?", array($pid));
+                ?>
+                <td style='padding-left:1em;'>
+                    <a class='css_button iframe small_modal' 
+                       href='create_portallogin.php?portalsite=off&patient=<?php echo htmlspecialchars($pid,ENT_QUOTES);?>' 
+                       onclick='top.restoreSession()'>
+                        <span>
+                            <?php $text = (empty($portalLogin)) ? xlt('Create Offsite Portal Credentials') : xlt('Reset Offsite Portal Credentials'); ?>
+                            <?php echo $text; ?>
+                        </span>
+                    </a>
+                </td>
+            <?php 
+            else:
+                $portalUserSetting = false;
+            endif; // allow_patient_portal
+        endif; // portal_offsite_enable
+        if (!($portalUserSetting)): // Show that the patient has not authorized portal access ?>
+            <td style='padding-left:1em;'>
+                <?php echo htmlspecialchars( xl('Patient has not authorized the Patient Portal.'), ENT_NOQUOTES);?>
+            </td>
+        <?php endif;
+        //Patient Portal
 
-  echo "</tr></table>";
- }
+        // If patient is deceased, then show this (along with the number of days patient has been deceased for)
+        $days_deceased = is_patient_deceased($pid);
+        if ($days_deceased != null): ?>
+            <td class="deceased" style="padding-left:1em;font-weight:bold;color:red">
+                <?php
+                if ($days_deceased == 0) {
+                    echo xlt("DECEASED (Today)");
+                }
+                else if ($days_deceased == 1) {
+                    echo xlt("DECEASED (1 day ago)");
+                }
+                else {
+                    echo xlt("DECEASED") . " (" . text($days_deceased) . " " . xlt("days ago") . ")";
+                } ?>
+            </td>
+        <?php endif; ?>
+    </tr>
+</table>
 
+<?php
+endif; // $thisauth
+?>
+
+<?php
 // Get the document ID of the patient ID card if access to it is wanted here.
 $idcard_doc_id = false;
 if ($GLOBALS['patient_id_category_name']) {
@@ -556,25 +602,31 @@ if ($GLOBALS['patient_id_category_name']) {
 }
 
 ?>
-<table cellspacing='0' cellpadding='0' border='0'>
- <tr>
-  <td class="small" colspan='4'>
-<a href="../history/history.php" onclick='top.restoreSession()'>
-<?php echo htmlspecialchars(xl('History'),ENT_NOQUOTES); ?></a>
-|
-<?php //note that we have temporarily removed report screen from the modal view ?>
-<a href="../report/patient_report.php" onclick='top.restoreSession()'>
-<?php echo htmlspecialchars(xl('Report'),ENT_NOQUOTES); ?></a>
-|
-<?php //note that we have temporarily removed document screen from the modal view ?>
-<a href="../../../controller.php?document&list&patient_id=<?php echo $pid;?>" onclick='top.restoreSession()'>
-<?php echo htmlspecialchars(xl('Documents'),ENT_NOQUOTES); ?></a>
-|
-<a href="../transaction/transactions.php" class='iframe large_modal' onclick='top.restoreSession()'>
-<?php echo htmlspecialchars(xl('Transactions'),ENT_NOQUOTES); ?></a>
-|
-<a href="stats_full.php?active=all" onclick='top.restoreSession()'>
-<?php echo htmlspecialchars(xl('Issues'),ENT_NOQUOTES); ?></a>
+<table cellspacing='0' cellpadding='0' border='0' class="subnav">
+  <tr>
+      <td class="small" colspan='4'>
+          <a href="../history/history.php" onclick='top.restoreSession()'>
+          <?php echo htmlspecialchars(xl('History'),ENT_NOQUOTES); ?></a>
+          |
+          <?php //note that we have temporarily removed report screen from the modal view ?>
+          <a href="../report/patient_report.php" onclick='top.restoreSession()'>
+          <?php echo htmlspecialchars(xl('Report'),ENT_NOQUOTES); ?></a>
+          |
+          <?php //note that we have temporarily removed document screen from the modal view ?>
+          <a href="../../../controller.php?document&list&patient_id=<?php echo $pid;?>" onclick='top.restoreSession()'>
+          <?php echo htmlspecialchars(xl('Documents'),ENT_NOQUOTES); ?></a>
+          |
+          <a href="../transaction/transactions.php" class='iframe large_modal' onclick='top.restoreSession()'>
+          <?php echo htmlspecialchars(xl('Transactions'),ENT_NOQUOTES); ?></a>
+          |
+          <a href="stats_full.php?active=all" onclick='top.restoreSession()'>
+          <?php echo htmlspecialchars(xl('Issues'),ENT_NOQUOTES); ?></a>
+          |
+          <a href="../../reports/pat_ledger.php?form=1&patient_id=<?php echo attr($pid);?>" onclick='top.restoreSession()'>
+          <?php echo xlt('Ledger'); ?></a>
+          |
+          <a href="../../reports/external_data.php" onclick='top.restoreSession()'>
+          <?php echo xlt('External Data'); ?></a>
 
 <!-- DISPLAYING HOOKS STARTS HERE -->
 <?php
@@ -613,41 +665,40 @@ if ($GLOBALS['patient_id_category_name']) {
 	?>
 <!-- DISPLAYING HOOKS ENDS HERE -->
 
-  </td>
- </tr>
- 
+        </td>
+    </tr>
 </table> <!-- end header -->
 
-<div style='margin-top:10px'> <!-- start main content div -->
- <table border="0" cellspacing="0" cellpadding="0" width="100%">
-  <tr>
-   <td align="left" valign="top">
-    <!-- start left column div -->
-    <div style='float:left; margin-right:20px'>
-     <table cellspacing=0 cellpadding=0>
-      <tr<?php if ($GLOBALS['athletic_team']) echo " style='display:none;'"; ?>>
-       <td>
-<?php
-// Billing expand collapse widget
-$widgetTitle = xl("Billing");
-$widgetLabel = "billing";
-$widgetButtonLabel = xl("Edit");
-$widgetButtonLink = "return newEvt();";
-$widgetButtonClass = "";
-$linkMethod = "javascript";
-$bodyClass = "notab";
-$widgetAuth = false;
-$fixedWidth = true;
-if ($GLOBALS['force_billing_widget_open']) {
-  $forceExpandAlways = true;
-}
-else {
-  $forceExpandAlways = false;
-}
-expand_collapse_widget($widgetTitle, $widgetLabel, $widgetButtonLabel,
-  $widgetButtonLink, $widgetButtonClass, $linkMethod, $bodyClass,
-  $widgetAuth, $fixedWidth, $forceExpandAlways);
-?>
+<div style='margin-top:10px' class="main"> <!-- start main content div -->
+    <table border="0" cellspacing="0" cellpadding="0" width="100%">
+        <tr>
+            <td class="demographics-box" align="left" valign="top">
+                <!-- start left column div -->
+                <div style='float:left; margin-right:20px'>
+                    <table cellspacing=0 cellpadding=0>
+                        <tr>
+                            <td>
+                                <?php
+                                // Billing expand collapse widget
+                                $widgetTitle = xl("Billing");
+                                $widgetLabel = "billing";
+                                $widgetButtonLabel = xl("Edit");
+                                $widgetButtonLink = "return newEvt();";
+                                $widgetButtonClass = "";
+                                $linkMethod = "javascript";
+                                $bodyClass = "notab";
+                                $widgetAuth = false;
+                                $fixedWidth = true;
+                                if ($GLOBALS['force_billing_widget_open']) {
+                                  $forceExpandAlways = true;
+                                }
+                                else {
+                                  $forceExpandAlways = false;
+                                }
+                                expand_collapse_widget($widgetTitle, $widgetLabel, $widgetButtonLabel,
+                                  $widgetButtonLink, $widgetButtonClass, $linkMethod, $bodyClass,
+                                  $widgetAuth, $fixedWidth, $forceExpandAlways);
+                                ?>
         <br>
 <?php
 		//PATIENT BALANCE,INS BALANCE naina@capminds.com
@@ -670,10 +721,10 @@ expand_collapse_widget($widgetTitle, $widgetLabel, $widgetButtonLabel,
    xlt('Total Balance Due').
    " : " . text(oeFormatMoney($totalbalance)) .
    "</font></span></td></td></tr>";
-  if ($result['genericname2'] == 'Billing') {
+ if (!empty($result['billing_note'])) {
    echo "<tr><td><span class='bold'><font color='red'>" .
     xlt('Billing Note') . ":" .
-    text($result['genericval2']) .
+    text($result['billing_note']) .
     "</font></span></td></tr>";
   } 
   if ($result3['provider']) {   // Use provider in case there is an ins record w/ unassigned insco
@@ -1263,71 +1314,10 @@ expand_collapse_widget($widgetTitle, $widgetLabel, $widgetButtonLabel,
 	  echo "   <br />&nbsp;<br />\n";
 	}
 
-	// This stuff only applies to athletic team use of OpenEMR.  The client
-	// insisted on being able to quickly change fitness and return date here:
-	//
-	if (false && $GLOBALS['athletic_team']) {
-	  //                  blue      green     yellow    red       orange
-	  $fitcolors = array('#6677ff','#00cc00','#ffff00','#ff3333','#ff8800','#ffeecc','#ffccaa');
-	  if (!empty($GLOBALS['fitness_colors'])) $fitcolors = $GLOBALS['fitness_colors'];
-	  $fitcolor = $fitcolors[0];
-	  $form_fitness   = $_POST['form_fitness'];
-	  $form_userdate1 = fixDate($_POST['form_userdate1'], '');
-	  $form_issue_id  = $_POST['form_issue_id'];
-	  if ($form_submit) {
-		$returndate = $form_userdate1 ? "'$form_userdate1'" : "NULL";
-		sqlStatement("UPDATE patient_data SET fitness = ?, " .
-		  "userdate1 = ? WHERE pid = ?", array($form_fitness, $returndate, $pid) );
-		// Update return date in the designated issue, if requested.
-		if ($form_issue_id) {
-		  sqlStatement("UPDATE lists SET returndate = ? WHERE " .
-		    "id = ?", array($returndate, $form_issue_id) );
-		}
-	  } else {
-		$form_fitness = $result['fitness'];
-		if (! $form_fitness) $form_fitness = 1;
-		$form_userdate1 = $result['userdate1'];
-	  }
-	  $fitcolor = $fitcolors[$form_fitness - 1];
-	  echo "   <form method='post' action='demographics.php' onsubmit='return validate()'>\n";
-	  echo "   <span class='bold'>Fitness to Play:</span><br />\n";
-	  echo "   <select name='form_fitness' style='background-color:$fitcolor'>\n";
-	  $res = sqlStatement("SELECT * FROM list_options WHERE " .
-		"list_id = 'fitness' ORDER BY seq");
-	  while ($row = sqlFetchArray($res)) {
-		$key = $row['option_id'];
-		echo "    <option value='" . htmlspecialchars($key,ENT_QUOTES) . "'";
-		if ($key == $form_fitness) echo " selected";
-		echo ">" . htmlspecialchars($row['title'],ENT_NOQUOTES) . "</option>\n";
-	  }
-	  echo "   </select>\n";
-	  echo "   <br /><span class='bold'>Return to Play:</span><br>\n";
-	  echo "   <input type='text' size='10' name='form_userdate1' id='form_userdate1' " .
-		"value='$form_userdate1' " .
-		"title='" . htmlspecialchars(xl('yyyy-mm-dd Date of return to play'),ENT_QUOTES) . "' " .
-		"onkeyup='datekeyup(this,mypcc)' onblur='dateblur(this,mypcc)' />\n" .
-		"   <img src='../../pic/show_calendar.gif' align='absbottom' width='24' height='22' " .
-		"id='img_userdate1' border='0' alt='[?]' style='cursor:pointer' " .
-		"title='" . htmlspecialchars(xl('Click here to choose a date'),ENT_QUOTES) . "'>\n";
-	  echo "   <input type='hidden' name='form_original_userdate1' value='" . htmlspecialchars($form_userdate1,ENT_QUOTES) . "' />\n";
-	  echo "   <input type='hidden' name='form_issue_id' value='' />\n";
-	  echo "<p><input type='submit' name='form_submit' value='Change' /></p>\n";
-	  echo "   </form>\n";
-	}
 
-	// Show current and upcoming appointments.
-	if (isset($pid) && !$GLOBALS['disable_calendar']) {
-	 $query = "SELECT e.pc_eid, e.pc_aid, e.pc_title, e.pc_eventDate, " .
-	  "e.pc_startTime, e.pc_hometext, u.fname, u.lname, u.mname, " .
-	  "c.pc_catname, e.pc_apptstatus " .
-	  "FROM openemr_postcalendar_events AS e, users AS u, " .
-	  "openemr_postcalendar_categories AS c WHERE " .
-	  "e.pc_pid = ? AND e.pc_eventDate >= CURRENT_DATE AND " .
-	  "u.id = e.pc_aid AND e.pc_catid = c.pc_catid " .
-	  "ORDER BY e.pc_eventDate, e.pc_startTime";
-	 $res = sqlStatement($query, array($pid) );
-
-     if ( (acl_check('patients', 'med')) && ($GLOBALS['enable_cdr'] && $GLOBALS['enable_cdr_crw']) ) {
+     // Show Clinical Reminders for any user that has rules that are permitted.
+     $clin_rem_check = resolve_rules_sql('','0',TRUE,'',$_SESSION['authUser']); 
+     if ( (!empty($clin_rem_check)) && ($GLOBALS['enable_cdr'] && $GLOBALS['enable_cdr_crw']) ) {
         // clinical summary expand collapse widget
         $widgetTitle = xl("Clinical Reminders");
         $widgetLabel = "clinical_reminders";
@@ -1344,6 +1334,40 @@ expand_collapse_widget($widgetTitle, $widgetLabel, $widgetButtonLabel,
         echo "</div>";
         } // end if crw
 
+
+      // Show current and upcoming appointments.
+      //
+      // Appointments code modified to add recurring appts
+      // and appt display sets by Ian Jardine.
+      //
+      if (isset($pid) && !$GLOBALS['disable_calendar']) {
+      //
+        $current_date2 = date('Y-m-d');
+        $events = array();
+        $apptNum = (int)$GLOBALS['number_of_appts_to_show'];
+        if($apptNum != 0) $apptNum2 = abs($apptNum);
+        else $apptNum2 = 10;
+        $events = fetchNextXAppts($current_date2, $pid, $apptNum2 + 1);
+        //////
+        if(count($events) > $apptNum2) {
+          $extraApptDate = $events[$apptNum2]['pc_eventDate'];
+          array_pop($events);
+        }
+        else $extraApptDate = '';
+        //////
+        if($extraApptDate) {
+          $firstApptIndx = 0;
+          $lastApptIndx = $apptNum2 - 1;
+          $lastApptDate = $events[$lastApptIndx]['pc_eventDate'];
+          for($i = 0; $i <= $lastApptIndx; ++$i) {
+            if($events[$lastApptIndx - $i]['pc_eventDate'] != $lastApptDate) {
+              $firstApptIndx = $apptNum2 - $i;
+              break;
+            }
+          }
+        }
+        //////
+
 	// appointments expand collapse widget
         $widgetTitle = xl("Appointments");
         $widgetLabel = "appointments";
@@ -1352,13 +1376,17 @@ expand_collapse_widget($widgetTitle, $widgetLabel, $widgetButtonLabel,
         $widgetButtonClass = "";
         $linkMethod = "javascript";
         $bodyClass = "summary_item small";
-        $widgetAuth = (isset($res) && $res != null);
+        $widgetAuth = $resNotNull; // $resNotNull reflects state of query in fetchAppointments
         $fixedWidth = false;
         expand_collapse_widget($widgetTitle, $widgetLabel, $widgetButtonLabel , $widgetButtonLink, $widgetButtonClass, $linkMethod, $bodyClass, $widgetAuth, $fixedWidth);
         $count = 0;
-        while($row = sqlFetchArray($res)) {
+        //
+        $toggleSet = true;
+        $priorDate = "";
+        //
+        foreach($events as $row) { //////
             $count++;
-            $dayname = date("l", strtotime($row['pc_eventDate']));
+            $dayname = date("l", strtotime($row['pc_eventDate'])); //////
             $dispampm = "am";
             $disphour = substr($row['pc_startTime'], 0, 2) + 0;
             $dispmin  = substr($row['pc_startTime'], 3, 2);
@@ -1370,20 +1398,43 @@ expand_collapse_widget($widgetTitle, $widgetLabel, $widgetButtonLabel,
             if ($row['pc_hometext'] != "") {
                 $etitle = xl('Comments').": ".($row['pc_hometext'])."\r\n".$etitle;
             }
-            echo "<a href='javascript:oldEvt(" . htmlspecialchars($row['pc_eid'],ENT_QUOTES) . ")' title='" . htmlspecialchars($etitle,ENT_QUOTES) . "'>";
-            echo "<b>" . htmlspecialchars(xl($dayname) . ", " . $row['pc_eventDate'],ENT_NOQUOTES) . "</b>" . xlt("Status") .  "(";
-            echo " " .  generate_display_field(array('data_type'=>'1','list_id'=>'apptstat'),$row['pc_apptstatus']) . ")<br>";   // can't use special char parser on this
-            echo htmlspecialchars("$disphour:$dispmin " . xl($dispampm) . " " . xl_appt_category($row['pc_catname']),ENT_NOQUOTES) . "<br>\n";
-            echo htmlspecialchars($row['fname'] . " " . $row['lname'],ENT_NOQUOTES) . "</a><br>\n";
+            //////
+            if($extraApptDate && $count > $firstApptIndx) {
+              if($row['pc_eventDate'] == $extraApptDate) $apptStyle = " style='background-color:#ffe6ff;'";
+              else $apptStyle = " style='background-color:#e6ffe6;'";
+            } else {
+              if($row['pc_eventDate'] != $priorDate) {
+                $priorDate = $row['pc_eventDate'];
+                $toggleSet = !$toggleSet;
+              }
+              if($toggleSet) $apptStyle = " style='background-color:#e6e6ff;'";
+              else $apptStyle = '';
+            }
+            //////
+            echo "<div " . $apptStyle . ">";
+            echo "<a href='javascript:oldEvt(" . htmlspecialchars(preg_replace("/-/", "", $row['pc_eventDate']),ENT_QUOTES) . ', ' . htmlspecialchars($row['pc_eid'],ENT_QUOTES) . ")' title='" . htmlspecialchars($etitle,ENT_QUOTES) . "'>";
+            echo "<b>" . htmlspecialchars($row['pc_eventDate'],ENT_NOQUOTES) . ", ";
+            echo htmlspecialchars(sprintf("%02d", $disphour) .":$dispmin " . xl($dispampm) . " (" . xl($dayname),ENT_NOQUOTES)  . ")</b> ";
+            if ($row['pc_recurrtype']) echo "<img src='" . $GLOBALS['webroot'] . "/interface/main/calendar/modules/PostCalendar/pntemplates/default/images/repeating8.png' border='0' style='margin:0px 2px 0px 2px;' title='".htmlspecialchars(xl("Repeating event"),ENT_QUOTES)."' alt='".htmlspecialchars(xl("Repeating event"),ENT_QUOTES)."'>";
+            echo "<span title='" . generate_display_field(array('data_type'=>'1','list_id'=>'apptstat'),$row['pc_apptstatus']) . "'>";
+            echo "<br>" . xlt('Status') . "( " . htmlspecialchars($row['pc_apptstatus'],ENT_NOQUOTES) . " ) </span>";
+            echo htmlspecialchars(xl_appt_category($row['pc_catname']),ENT_NOQUOTES) . "\n";
+            if ($row['pc_hometext']) echo " <span style='color:green'> Com</span>";
+            echo "<br>" . htmlspecialchars($row['ufname'] . " " . $row['ulname'],ENT_NOQUOTES) . "</a></div>\n";
+            //////
         }
-        if (isset($res) && $res != null) {
-            if ( $count < 1 ) { 
-                echo "&nbsp;&nbsp;" . htmlspecialchars(xl('None'),ENT_NOQUOTES); 
+        if ($resNotNull) { //////
+            if ( $count < 1 ) {
+                echo "&nbsp;&nbsp;" . htmlspecialchars(xl('None'),ENT_NOQUOTES);
+            } else { //////
+              if($extraApptDate) echo "<div>&nbsp;</div>";
+              else echo "<div><hr></div>";
             }
             echo "</div>";
-      }
-    }
-            
+        }
+      } // End of Appointments.
+
+
 	// Show PAST appointments.
 	// added by Terry Hill to allow reverse sorting of the appointments
  	$direction = "ASC";
@@ -1434,7 +1485,7 @@ expand_collapse_widget($widgetTitle, $widgetLabel, $widgetButtonLabel,
             if ($row['pc_hometext'] != "") {
                 $etitle = xl('Comments').": ".($row['pc_hometext'])."\r\n".$etitle;
             }
-            echo "<a href='javascript:oldEvt(" . htmlspecialchars($row['pc_eid'],ENT_QUOTES) . ")' title='" . htmlspecialchars($etitle,ENT_QUOTES) . "'>";
+            echo "<a href='javascript:oldEvt(" . htmlspecialchars(preg_replace("/-/", "", $row['pc_eventDate']),ENT_QUOTES) . ', ' . htmlspecialchars($row['pc_eid'],ENT_QUOTES) . ")' title='" . htmlspecialchars($etitle,ENT_QUOTES) . "'>";
             echo "<b>" . htmlspecialchars(xl($dayname) . ", " . $row['pc_eventDate'],ENT_NOQUOTES) . "</b>" . xlt("Status") .  "(";
             echo " " .  generate_display_field(array('data_type'=>'1','list_id'=>'apptstat'),$row['pc_apptstatus']) . ")<br>";   // can't use special char parser on this
             echo htmlspecialchars("$disphour:$dispmin ") . xl($dispampm) . " ";
@@ -1505,11 +1556,13 @@ expand_collapse_widget($widgetTitle, $widgetLabel, $widgetButtonLabel,
 
 </div> <!-- end main content div -->
 
-<?php if (false && $GLOBALS['athletic_team']) { ?>
 <script language='JavaScript'>
- Calendar.setup({inputField:"form_userdate1", ifFormat:"%Y-%m-%d", button:"img_userdate1"});
+// Array of skip conditions for the checkSkipConditions() function.
+var skipArray = [
+<?php echo $condition_str; ?>
+];
+checkSkipConditions();
 </script>
-<?php } ?>
 
 </body>
 </html>

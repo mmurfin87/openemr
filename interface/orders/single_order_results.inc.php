@@ -61,34 +61,50 @@ function generate_result_row(&$ctx, &$row, &$rrow, $priors_omitted=false) {
   $report_id      = empty($row['procedure_report_id']) ? 0 : ($row['procedure_report_id'] + 0);
   $procedure_code = empty($row['procedure_code'  ]) ? '' : $row['procedure_code'];
   $procedure_name = empty($row['procedure_name'  ]) ? '' : $row['procedure_name'];
-  $date_report    = empty($row['date_report'     ]) ? '' : $row['date_report'];
+  $date_report    = empty($row['date_report'     ]) ? '' : substr($row['date_report'], 0, 16);
+  $date_report_suf = empty($row['date_report_tz' ]) ? '' : (' ' . $row['date_report_tz' ]);
   $date_collected = empty($row['date_collected'  ]) ? '' : substr($row['date_collected'], 0, 16);
+  $date_collected_suf = empty($row['date_collected_tz' ]) ? '' : (' ' . $row['date_collected_tz' ]);
   $specimen_num   = empty($row['specimen_num'    ]) ? '' : $row['specimen_num'];
   $report_status  = empty($row['report_status'   ]) ? '' : $row['report_status']; 
   $review_status  = empty($row['review_status'   ]) ? 'received' : $row['review_status'];
 
-  $report_noteid ='';
+  $report_noteid = '';
   if ($report_id && !isset($ctx['seen_report_ids'][$report_id])) {
     $ctx['seen_report_ids'][$report_id] = true;
     if ($review_status != 'reviewed') {
       if ($ctx['sign_list']) $ctx['sign_list'] .= ',';
       $ctx['sign_list'] .= $report_id;
     }
+    // Allowing for multiple report notes separated by newlines.
     if (!empty($row['report_notes'])) {
-      $report_noteid = 1 + storeNote($row['report_notes']);
+      $notes = explode("\n", $row['report_notes']);
+      foreach ($notes as $note) {
+        if ($note === '') continue;
+        if ($report_noteid) $report_noteid .= ', ';
+        $report_noteid .= 1 + storeNote($note);
+      }
     }
   }
-
+  // allow for 0 to be displayed as a result value
+  if($rrow['result'] == '' && $rrow['result'] !== 0 && $rrow['result'] !== '0') {
+    $result_result = '';
+  } else { 
+    $result_result = $rrow['result'];
+  }
   $result_code      = empty($rrow['result_code'     ]) ? '' : $rrow['result_code'];
   $result_text      = empty($rrow['result_text'     ]) ? '' : $rrow['result_text'];
   $result_abnormal  = empty($rrow['abnormal'        ]) ? '' : $rrow['abnormal'];
-  $result_result    = empty($rrow['result'          ]) ? '' : $rrow['result'];
   $result_units     = empty($rrow['units'           ]) ? '' : $rrow['units'];
   $result_facility  = empty($rrow['facility'        ]) ? '' : $rrow['facility'];
   $result_comments  = empty($rrow['comments'        ]) ? '' : $rrow['comments'];
   $result_range     = empty($rrow['range'           ]) ? '' : $rrow['range'];
   $result_status    = empty($rrow['result_status'   ]) ? '' : $rrow['result_status'];
   $result_document_id = empty($rrow['document_id'   ]) ? '' : $rrow['document_id'];
+
+  // Someone changed the delimiter in result comments from \n to \r.
+  // Have to make sure results are consistent with those before that change.
+  $result_comments = str_replace("\r", "\n", $result_comments);
 
   if ($i = strpos($result_comments, "\n")) { // "=" is not a mistake!
     // If the first line of comments is not empty, then it is actually a long textual
@@ -106,6 +122,13 @@ function generate_result_row(&$ctx, &$row, &$rrow, $priors_omitted=false) {
     if ($result_noteid) $result_noteid .= ', ';
     $result_noteid .= 1 + storeNote(xl('This is the latest of multiple result values.'));
     $ctx['priors_omitted'] = true;
+  }
+
+  // If a performing organization is provided, make a note for it also.
+  $result_facility = trim(str_replace("\r", "\n", $result_facility));
+  if ($result_facility) {
+    if ($result_noteid) $result_noteid .= ', ';
+    $result_noteid .= 1 + storeNote(xl('Performing organization') . ":\n" . $result_facility);
   }
 
   if ($ctx['lastpcid'] != $order_seq) {
@@ -138,7 +161,11 @@ function generate_result_row(&$ctx, &$row, &$rrow, $priors_omitted=false) {
   // If this starts a new report or a new order, generate the report fields.
   if ($report_id != $ctx['lastprid']) {
     echo "  <td>";
-    echo myCellText(oeFormatShortDate($date_report));
+    echo myCellText(oeFormatShortDate(substr($date_report, 0, 10)) . substr($date_report, 10) . $date_report_suf);
+    echo "</td>\n";
+
+    echo "  <td>";
+    echo myCellText(oeFormatShortDate(substr($date_collected, 0, 10)) . substr($date_collected, 10) . $date_collected_suf);
     echo "</td>\n";
 
     echo "  <td>";
@@ -157,7 +184,7 @@ function generate_result_row(&$ctx, &$row, &$rrow, $priors_omitted=false) {
     echo "</td>\n";
   }
   else {
-    echo "  <td colspan='4' style='background-color:transparent'>&nbsp;</td>\n";
+    echo "  <td colspan='5' style='background-color:transparent'>&nbsp;</td>\n";
   }
 
   if ($result_code !== '' || $result_document_id) {
@@ -202,7 +229,9 @@ function generate_result_row(&$ctx, &$row, &$rrow, $priors_omitted=false) {
       echo myCellText($result_range);
       echo "</td>\n";
       echo "  <td>";
-      echo myCellText($result_units);
+      // Units comes from the lab so might not match anything in the proc_unit list,
+      // but in that case the call will return the same value.
+      echo myCellText(getListItemTitle('proc_unit', $result_units));
       echo "</td>\n";
     }
     echo "  <td align='center'>";
@@ -247,21 +276,55 @@ function generate_order_report($orderid, $input_form=false, $genstyles=true, $fi
 ?>
 
 <?php if ($genstyles) { ?>
-<style>
-.labres tr.head   { font-size:10pt; background-color:#cccccc; text-align:center; }
-.labres tr.detail { font-size:10pt; }
-.labres a, .labres a:visited, .labres a:hover { color:#0000cc; }
-.labres table {
- border-style: solid;
- border-width: 1px 0px 0px 1px;
- border-color: black;
-}
-.labres td, .labres th {
- border-style: solid;
- border-width: 0px 1px 1px 0px;
- border-color: black;
-}
-</style>
+        <style>
+
+            <?php if (empty($_SESSION['language_direction']) || $_SESSION['language_direction'] == 'ltr') { ?>
+
+            .labres tr.head   { font-size:10pt; background-color:#cccccc; text-align:center; }
+            .labres tr.detail { font-size:10pt; }
+            .labres a, .labres a:visited, .labres a:hover { color:#0000cc; }
+
+            .labres table {
+                border-style: solid;
+                border-width: 1px 0px 0px 1px;
+                border-color: black;
+            }
+            .labres td, .labres th {
+                border-style: solid;
+                border-width: 0px 1px 1px 0px;
+                border-color: black;
+            }
+            /***** What is this for? Seems ugly to me. --Rod
+            .labres tr{
+                background-color: #cccccc;
+            }
+            *****/
+
+            <?php } else { ?>
+
+            .labres tr.head   { font-size:10pt;  text-align:center; }
+            .labres tr.detail { font-size:10pt; }
+
+            .labres table {
+                border-style: none;
+                border-width: 1px 0px 0px 1px;
+                border-color: black;
+            }
+            .labres td, .labres th {
+                border-style: none;
+                border-width: 0px 1px 1px 0px;
+                border-color: black;
+                padding: 4px;
+            }
+            .labres table td.td-label{
+
+                font-weight: bold;
+            }
+
+
+            <?php } ?>
+
+        </style>
 <?php } ?>
 
 <?php if ($input_form) { ?>
@@ -314,10 +377,10 @@ function educlick(codetype, codevalue) {
 <div class='labres'>
 
 <table width='100%' cellpadding='2' cellspacing='0'>
- <tr bgcolor='#cccccc'>
-  <td width='5%' nowrap><?php echo xlt('Patient ID'); ?></td>
+ <tr>
+  <td class="td-label" width='5%' nowrap><?php echo xlt('Patient ID'); ?></td>
   <td width='45%'><?php echo myCellText($orow['pubpid']); ?></td>
-  <td width='5%' nowrap><?php echo xlt('Order ID'); ?></td>
+  <td class="td-label" width='5%' nowrap><?php echo xlt('Order ID'); ?></td>
   <td width='45%'>
 <?php
   if (empty($GLOBALS['PATIENT_REPORT_ACTIVE'])) {
@@ -336,28 +399,28 @@ function educlick(codetype, codevalue) {
 ?>
   </td>
  </tr>
- <tr bgcolor='#cccccc'>
-  <td nowrap><?php echo xlt('Patient Name'); ?></td>
+ <tr>
+  <td class="td-label" nowrap><?php echo xlt('Patient Name'); ?></td>
   <td><?php echo myCellText($orow['lname'] . ', ' . $orow['fname'] . ' ' . $orow['mname']); ?></td>
-  <td nowrap><?php echo xlt('Ordered By'); ?></td>
+  <td class="td-label" nowrap><?php echo xlt('Ordered By'); ?></td>
   <td><?php echo myCellText($orow['ulname'] . ', ' . $orow['ufname'] . ' ' . $orow['umname']); ?></td>
  </tr>
- <tr bgcolor='#cccccc'>
-  <td nowrap><?php echo xlt('Order Date'); ?></td>
+ <tr>
+  <td class="td-label" nowrap><?php echo xlt('Order Date'); ?></td>
   <td><?php echo myCellText(oeFormatShortDate($orow['date_ordered'])); ?></td>
-  <td nowrap><?php echo xlt('Print Date'); ?></td>
+  <td class="td-label" nowrap><?php echo xlt('Print Date'); ?></td>
   <td><?php echo oeFormatShortDate(date('Y-m-d')); ?></td>
  </tr>
- <tr bgcolor='#cccccc'>
-  <td nowrap><?php echo xlt('Order Status'); ?></td>
+ <tr>
+  <td class="td-label" nowrap><?php echo xlt('Order Status'); ?></td>
   <td><?php echo myCellText($orow['order_status']); ?></td>
-  <td nowrap><?php echo xlt('Encounter Date'); ?></td>
+  <td class="td-label" nowrap><?php echo xlt('Encounter Date'); ?></td>
   <td><?php echo myCellText(oeFormatShortDate(substr($orow['date'], 0, 10))); ?></td>
  </tr>
- <tr bgcolor='#cccccc'>
-  <td nowrap><?php echo xlt('Lab'); ?></td>
+ <tr>
+  <td class="td-label" nowrap><?php echo xlt('Lab'); ?></td>
   <td><?php echo myCellText($orow['labname']); ?></td>
-  <td nowrap><?php echo xlt('Specimen Type'); ?></td>
+  <td class="td-label" nowrap><?php echo $orow['specimen_type'] ? xlt('Specimen Type') : '&nbsp;'; ?></td>
   <td><?php echo myCellText($orow['specimen_type']); ?></td>
  </tr>
 </table>
@@ -367,13 +430,14 @@ function educlick(codetype, codevalue) {
 <table width='100%' cellpadding='2' cellspacing='0'>
 
  <tr class='head'>
-  <td rowspan='2' valign='middle'><?php echo xlt('Ordered Procedure'); ?></td>
-  <td colspan='4'><?php echo xlt('Report'); ?></td>
-  <td colspan='7'><?php echo xlt('Results'); ?></td>
+  <td class="td-label" rowspan='2' valign='middle'><?php echo xlt('Ordered Procedure'); ?></td>
+  <td  class="td-label" colspan='5'><?php echo xlt('Report'); ?></td>
+  <td class="td-label" colspan='7'><?php echo xlt('Results'); ?></td>
  </tr>
 
  <tr class='head'>
   <td><?php echo xlt('Reported'); ?></td>
+  <td><?php echo xlt('Collected'); ?></td>
   <td><?php echo xlt('Specimen'); ?></td>
   <td><?php echo xlt('Status'); ?></td>
   <td><?php echo xlt('Note'); ?></td>
@@ -390,8 +454,8 @@ function educlick(codetype, codevalue) {
   $query = "SELECT " .
     "po.lab_id, po.date_ordered, pc.procedure_order_seq, pc.procedure_code, " .
     "pc.procedure_name, " .
-    "pr.procedure_report_id, pr.date_report, pr.date_collected, pr.specimen_num, " .
-    "pr.report_status, pr.review_status, pr.report_notes " .
+    "pr.date_report, pr.date_report_tz, pr.date_collected, pr.date_collected_tz, " .
+    "pr.procedure_report_id, pr.specimen_num, pr.report_status, pr.review_status, pr.report_notes " .
     "FROM procedure_order AS po " .
     "JOIN procedure_order_code AS pc ON pc.procedure_order_id = po.procedure_order_id " .
     "LEFT JOIN procedure_report AS pr ON pr.procedure_order_id = po.procedure_order_id AND " .
@@ -422,35 +486,43 @@ function educlick(codetype, codevalue) {
       "ps.result_status, ps.facility, ps.units, ps.comments, ps.document_id, ps.date " .
       "FROM procedure_result AS ps " .
       "WHERE ps.procedure_report_id = ? " .
-      "ORDER BY ps.result_code, ps.procedure_result_id";
+      "ORDER BY ps.procedure_result_id";
 
     $rres = sqlStatement($query, array($report_id));
 
     if ($finals_only) {
       // We are consolidating reports.
-      $rrowsets = array();
-      // First pass creates a $rrowsets[$key] for each unique result code in *this* report, with
-      // the value being an array of the corresponding result rows. This caters to multiple
-      // occurrences of the same result code in the same report.
-      while ($rrow = sqlFetchArray($rres)) {
-        $result_code = empty($rrow['result_code']) ? '' : $rrow['result_code'];
-        $key = sprintf('%05d/', $row['procedure_order_seq']) . $result_code;
-        if (!isset($rrowsets[$key])) $rrowsets[$key] = array();
-        $rrowsets[$key][] = $rrow;
-      }
-      // Second pass builds onto the array of final results for *all* reports, where each final
-      // result for a given result code is its *array* of result rows from *one* of the reports.
-      foreach ($rrowsets as $key => $rrowset) {
-        // When two reports have the same date, use the result date to decide which is "latest".
-        if (isset($finals[$key]) &&
-          $row['date_report'] == $finals[$key][0]['date_report'] &&
-          !empty($rrow['date']) && !empty($finals[$key][1]['date']) &&
-          $rrow['date'] < $finals[$key][1]['date'])
-        {
-          $finals[$key][2] = true;
-          continue;
+      if (sqlNumRows($rres)) {
+        $rrowsets = array();
+        // First pass creates a $rrowsets[$key] for each unique result code in *this* report, with
+        // the value being an array of the corresponding result rows. This caters to multiple
+        // occurrences of the same result code in the same report.
+        while ($rrow = sqlFetchArray($rres)) {
+          $result_code = empty($rrow['result_code']) ? '' : $rrow['result_code'];
+          $key = sprintf('%05d/', $row['procedure_order_seq']) . $result_code;
+          if (!isset($rrowsets[$key])) $rrowsets[$key] = array();
+          $rrowsets[$key][] = $rrow;
         }
-        $finals[$key] = array($row, $rrowset, isset($finals[$key]));
+        // Second pass builds onto the array of final results for *all* reports, where each final
+        // result for a given result code is its *array* of result rows from *one* of the reports.
+        foreach ($rrowsets as $key => $rrowset) {
+          // When two reports have the same date, use the result date to decide which is "latest".
+          if (isset($finals[$key]) &&
+            $row['date_report'] == $finals[$key][0]['date_report'] &&
+            !empty($rrow['date']) && !empty($finals[$key][1]['date']) &&
+            $rrow['date'] < $finals[$key][1]['date'])
+          {
+            $finals[$key][2] = true; // see comment below
+            continue;
+          }
+          // $finals[$key][2] indicates if there are multiple results for this result code.
+          $finals[$key] = array($row, $rrowset, isset($finals[$key]));
+        }
+      }
+      else {
+        // We have no results for this report.
+        $key = sprintf('%05d/', $row['procedure_order_seq']);
+        $finals[$key] = array($row, array($empty_results), false);
       }
     }
     else {
@@ -467,10 +539,10 @@ function educlick(codetype, codevalue) {
   }
 
   if ($finals_only) {
-    if (empty($finals) && !empty($row)) {
-      $finals[''] = array($row, array($empty_results), false);
-    }
-    ksort($finals);
+    // The sort here was removed because $finals is already ordered by procedure_result_id
+    // within procedure_order_seq which is probably desirable.  Sorting by result code defeats
+    // the sequencing of results chosen by the sender.
+    // ksort($finals);
     foreach ($finals as $final) {
       foreach ($final[1] as $rrow) {
         generate_result_row($ctx, $final[0], $rrow, $final[2]);
@@ -495,7 +567,8 @@ function educlick(codetype, codevalue) {
     foreach ($aNotes as $key => $value) {
       echo " <tr>\n";
       echo "  <td valign='top'>" . ($key + 1) . "</td>\n";
-      echo "  <td>" . nl2br(text($value)) . "</td>\n";
+      // <pre> tag because white space and a fixed font are often used to line things up.
+      echo "  <td><pre style='white-space:pre-wrap;'>" . text($value) . "</pre></td>\n";
       echo " </tr>\n";
     }
     echo "</table>\n";

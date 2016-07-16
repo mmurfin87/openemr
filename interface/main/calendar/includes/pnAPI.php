@@ -345,8 +345,11 @@ function pnInit()
     }
 
     // ADODB configuration
-    define('ADODB_DIR', 'pnadodb');
-    require 'pnadodb/adodb.inc.php';
+    if (!defined('ADODB_DIR')) {
+        define('ADODB_DIR', dirname(__FILE__) . '/../../../../library/adodb');
+    }
+
+    require ADODB_DIR . '/adodb.inc.php';
 
     // Temporary fix for hacking the hlpfile global
     // TODO - remove with pre-0.71 code
@@ -477,6 +480,7 @@ function pnDBInit()
     global $pnconfig;
     $dbtype = $pnconfig['dbtype'];
     $dbhost = $pnconfig['dbhost'];
+    $dbport = $pnconfig['dbport'];
     $dbname = $pnconfig['dbname'];
     $dbuname = $pnconfig['dbuname'];
     $dbpass = $pnconfig['dbpass'];
@@ -486,6 +490,7 @@ function pnDBInit()
 
     // Start connection
     $dbconn = ADONewConnection($dbtype);
+    $dbconn->port = $dbport;
     $dbh = $dbconn->Connect($dbhost, $dbuname, $dbpass, $dbname);
     if (!$dbh) {
     	//$dbpass = "";
@@ -501,6 +506,12 @@ function pnDBInit()
         }
     }
     // ---------------------------------------
+
+    //Turn off STRICT SQL
+    $sql_strict_set_success = $dbconn->Execute("SET sql_mode = ''");
+    if (!$sql_strict_set_success) {
+        error_log("PHP custom error: from postnuke interface/main/calendar/includes/pnAPI.php - Unable to set strict sql setting", 0);
+    }
     
     global $ADODB_FETCH_MODE;
     $ADODB_FETCH_MODE = ADODB_FETCH_NUM;
@@ -579,7 +590,7 @@ function pnVarCleanFromInput()
         }
 
         // Clean var
-        if (get_magic_quotes_gpc()) {
+        if (check_magic_quotes()) {
             pnStripslashes($ourvar);
         }
         if (!pnSecAuthAction(0, '::', '::', ACCESS_ADMIN)) {
@@ -631,20 +642,25 @@ function pnVarPrepForDisplay()
     // This search and replace finds the text 'x@y' and replaces
     // it with HTML entities, this provides protection against
     // email harvesters
-    static $search = array('/(.)@(.)/se');
-
-    static $replace = array('"&#" .
-                            sprintf("%03d", ord("\\1")) .
-                            ";&#064;&#" .
-                            sprintf("%03d", ord("\\2")) . ";";');
+    static $search = array('/(.)@(.)/s');
 
     $resarray = array();
+
     foreach (func_get_args() as $ourvar) {
 
         // Prepare var
         $ourvar = htmlspecialchars($ourvar);
 
-        $ourvar = preg_replace($search, $replace, $ourvar);
+        $ourvar = preg_replace_callback($search, function ($m) {
+
+            $output = "";
+            for ($i = 0; $i < (strlen($m[0])); $i++) {
+                $output .= '&#' . ord($m[0][$i]) . ';';
+            }
+            return $output;
+        },
+        $ourvar);
+
 
         // Add to array
         array_push($resarray, $ourvar);
@@ -679,12 +695,7 @@ function pnVarPrepHTMLDisplay()
     // Note that the use of \024 and \022 are needed to ensure that
     // this does not break HTML tags that might be around either
     // the username or the domain name
-    static $search = array('/([^\024])@([^\022])/se');
-
-    static $replace = array('"&#" .
-                            sprintf("%03d", ord("\\1")) .
-                            ";&#064;&#" .
-                            sprintf("%03d", ord("\\2")) . ";";');
+    static $search = array('/([^\024])@([^\022])/s');
 
     static $allowedhtml;
 
@@ -711,14 +722,21 @@ function pnVarPrepHTMLDisplay()
 
         // Prepare var
         $ourvar = htmlspecialchars($ourvar);
-        $ourvar = preg_replace($search, $replace, $ourvar);
+        $ourvar = preg_replace_callback($search,
+            function ($matches) {
+                return "&#" .
+                sprintf("%03d", ord($matches[1])) .
+                ";&#064;&#" .
+                sprintf("%03d", ord($matches[2])) . ";";
+            },
+            $ourvar);
 
         // Fix the HTML that we want
-        $ourvar = preg_replace('/\022([^\024]*)\024/e',
-                               "'<' . strtr('\\1', array('&gt;' => '>',
-                                                         '&lt;' => '<',
-                                                         '&quot;' => '\"'))
-                               . '>';", $ourvar);
+        $ourvar = preg_replace_callback('/\022([^\024]*)\024/',
+            function ($matches) {
+                return '<' . strtr("$matches[1]", array('&gt;' => '>', '&lt;' => '<', '&quot;' => '\"')) . '>';
+            }
+        , $ourvar);
 
         // Fix entities if required
         if (pnConfigGetVar('htmlentities')) {
@@ -1231,20 +1249,20 @@ if (count($HTTP_GET_VARS) > 0) {
 
         foreach ($HTTP_GET_VARS as $secvalue) {
         	if (!is_array($secvalue)) {
-                if ((eregi("<[^>]*script*\"?[^>]*>", $secvalue)) ||
-                        (eregi(".*[[:space:]](or|and)[[:space:]].*(=|like).*", $secvalue)) ||
-                        (eregi("<[^>]*object*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*iframe*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*applet*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*meta*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*style*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*form*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*window.*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*alert*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*img*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*document.*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*cookie*\"?[^>]*>", $secvalue)) ||
-                        (eregi("\"", $secvalue))) {
+                if ((preg_match("/<[^>]*script*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/.*[[:space:]](or|and)[[:space:]].*(=|like).*/i", $secvalue)) ||
+                        (preg_match("/<[^>]*object*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*iframe*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*applet*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*meta*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*style*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*form*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*window.*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*alert*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*img*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*document.*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*cookie*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/\"/i", $secvalue))) {
                         //pnMailHackAttempt(__FILE__,__LINE__,'pnSecurity Alert','Intrusion detection.');
                         //Header("Location: index.php");
                 }
@@ -1259,15 +1277,15 @@ if ( count($HTTP_POST_VARS) > 0) {
 
         foreach ($HTTP_POST_VARS as $secvalue) {
         	if (!is_array($secvalue)) {
-                if ((eregi("<[^>]*script*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*object*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*iframe*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*applet*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*window.*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*alert*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*document.*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*cookie*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*meta*\"?[^>]*>", $secvalue))
+                if ((preg_match("/<[^>]*script*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*object*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*iframe*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*applet*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*window.*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*alert*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*document.*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*cookie*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*meta*\"?[^>]*>/i", $secvalue))
                         ) {
 
                         //pnMailHackAttempt(__FILE__,__LINE__,'pnSecurity Alert','Intrusion detection.');
@@ -1285,19 +1303,19 @@ if ( count($HTTP_COOKIE_VARS) > 0) {
 
         foreach ($HTTP_COOKIE_VARS as $secvalue) {
 			if (!is_array($secvalue)) {
-                if ((eregi("<[^>]*script*\"?[^>]*>", $secvalue)) ||
-                        (eregi(".*[[:space:]](or|and)[[:space:]].*(=|like).*", $secvalue)) ||
-                        (eregi("<[^>]*object*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*iframe*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*applet*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*meta*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*style*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*form*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*window.*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*alert*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*document.*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*cookie*\"?[^>]*>", $secvalue)) ||
-                        (eregi("<[^>]*img*\"?[^>]*>", $secvalue))
+                if ((preg_match("/<[^>]*script*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/.*[[:space:]](or|and)[[:space:]].*(=|like).*/i", $secvalue)) ||
+                        (preg_match("/<[^>]*object*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*iframe*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*applet*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*meta*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*style*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*form*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*window.*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*alert*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*document.*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*cookie*\"?[^>]*>/i", $secvalue)) ||
+                        (preg_match("/<[^>]*img*\"?[^>]*>/i", $secvalue))
                         ) {
 
                         pnMailHackAttempt(__FILE__,__LINE__,'pnSecurity Alert','Intrusion detection.');

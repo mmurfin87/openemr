@@ -1,8 +1,25 @@
 <?php
-// This program is free software; you can redistribute it and/or
-// modify it under the terms of the GNU General Public License
-// as published by the Free Software Foundation; either version 2
-// of the License, or (at your option) any later version.
+/**
+ * This script print Prescriptions.
+ *
+ * Copyright (C) 2015 Roberto Vasquez <robertogagliotta@gmail.com>
+ *
+ * LICENSE: This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://opensource.org/licenses/gpl-license.php>;.
+ *
+ * @package OpenEMR
+ * @author  Roberto Vasquez <robertogagliotta@gmail.com>
+ * @link    http://www.open-emr.org
+ */
+
 
 require_once($GLOBALS['fileroot'] . "/library/classes/Controller.class.php");
 require_once($GLOBALS['fileroot'] . "/library/classes/Prescription.class.php");
@@ -19,8 +36,8 @@ class C_Prescription extends Controller {
 	var $is_faxing = false;
 	var $is_print_to_fax = false;
 
-	function C_Prescription($template_mod = "general") {
-		parent::Controller();
+	function __construct($template_mod = "general") {
+		parent::__construct();
 
 		$this->template_mod = $template_mod;
 		$this->assign("FORM_ACTION", $GLOBALS['webroot']."/controller.php?" . $_SERVER['QUERY_STRING']);
@@ -31,6 +48,7 @@ class C_Prescription extends Controller {
 		$this->pconfig = $GLOBALS['oer_config']['prescriptions'];
 	    $this->assign("CSS_HEADER",  $GLOBALS['css_header'] );
 	    $this->assign("WEB_ROOT", $GLOBALS['webroot'] );
+		$this->RxList = new RxList();
 
 		if ($GLOBALS['inhouse_pharmacy']) {
 			// Make an array of drug IDs and selectors for the template.
@@ -42,7 +60,7 @@ class C_Prescription extends Controller {
 
 			$res = sqlStatement("SELECT d.name, d.ndc_number, d.form, d.size, " .
 				"d.unit, d.route, d.substitute, t.drug_id, t.selector, t.dosage, " .
-				"t.period, t.quantity, t.refills " .
+				"t.period, t.quantity, t.refills, d.drug_code " .
 				"FROM drug_templates AS t, drugs AS d WHERE " .
 				"d.drug_id = t.drug_id ORDER BY t.selector");
 
@@ -65,7 +83,8 @@ class C_Prescription extends Controller {
 					$row['substitute'] . ","   . //  7
 					$row['quantity']   . ","   . //  8
 					$row['refills']    . ","   . //  9
-					$row['quantity']   . "]";    // 10 quantity per_refill
+					$row['quantity']   . ","   . //  10 quantity per_refill
+					$row['drug_code']  . "]";    //  11 rxnorm drug code
 			}
 			$this->assign("DRUG_ARRAY_VALUES", $drug_array_values);
 			$this->assign("DRUG_ARRAY_OUTPUT", $drug_array_output);
@@ -191,6 +210,26 @@ class C_Prescription extends Controller {
       processAmcCall('e_prescribe_amc', true, 'remove', $this->prescriptions[0]->get_patient_id(), 'prescriptions', $this->prescriptions[0]->id);
     }
 
+    // Set the AMC reporting flag (to record prescriptions that checked drug formulary)
+    if (!(empty($_POST['checked_formulary_flag']))) {
+      // add the e-prescribe flag
+      processAmcCall('e_prescribe_chk_formulary_amc', true, 'add', $this->prescriptions[0]->get_patient_id(), 'prescriptions', $this->prescriptions[0]->id);
+    }
+    else {
+      // remove the e-prescribe flag
+      processAmcCall('e_prescribe_chk_formulary_amc', true, 'remove', $this->prescriptions[0]->get_patient_id(), 'prescriptions', $this->prescriptions[0]->id);
+    }
+
+    // Set the AMC reporting flag (to record prescriptions that are controlled substances)
+    if (!(empty($_POST['controlled_substance_flag']))) {
+      // add the e-prescribe flag
+      processAmcCall('e_prescribe_cont_subst_amc', true, 'add', $this->prescriptions[0]->get_patient_id(), 'prescriptions', $this->prescriptions[0]->id);
+    }
+    else {
+      // remove the e-prescribe flag
+      processAmcCall('e_prescribe_cont_subst_amc', true, 'remove', $this->prescriptions[0]->get_patient_id(), 'prescriptions', $this->prescriptions[0]->id);
+    }
+
 // TajEmo Work by CB 2012/05/29 02:58:29 PM to stop from going to send screen. Improves Work Flow 
 //     if ($this->prescriptions[0]->get_active() > 0) {
 //       return $this->send_action($this->prescriptions[0]->id);
@@ -232,7 +271,7 @@ class C_Prescription extends Controller {
 		$pdf->ezImage($GLOBALS['oer_config']['prescriptions']['logo'],'','50','','center','');
 		$pdf->ezColumnsStart(array('num'=>2, 'gap'=>10));
 		$res = sqlQuery("SELECT concat('<b>',f.name,'</b>\n',f.street,'\n',f.city,', ',f.state,' ',f.postal_code,'\nTel:',f.phone,if(f.fax != '',concat('\nFax: ',f.fax),'')) addr FROM users JOIN facility AS f ON f.name = users.facility where users.id ='" .
-			mysql_real_escape_string($p->provider->id) . "'");
+			add_escape_custom($p->provider->id) . "'");
 		$pdf->ezText($res['addr'],12);
 		$my_y = $pdf->y;
 		$pdf->ezNewPage();
@@ -278,7 +317,7 @@ class C_Prescription extends Controller {
 		$pdf->line($pdf->ez['leftMargin'],$pdf->y,$pdf->ez['pageWidth']-$pdf->ez['rightMargin'],$pdf->y);
 		$pdf->ezText('<b>' . xl('Patient Name & Address') . '</b>',6);
 		$pdf->ezText($p->patient->get_name_display(),10);
-		$res = sqlQuery("SELECT  concat(street,'\n',city,', ',state,' ',postal_code,'\n',if(phone_home!='',phone_home,if(phone_cell!='',phone_cell,if(phone_biz!='',phone_biz,'')))) addr from patient_data where pid =". mysql_real_escape_string ($p->patient->id));
+		$res = sqlQuery("SELECT  concat(street,'\n',city,', ',state,' ',postal_code,'\n',if(phone_home!='',phone_home,if(phone_cell!='',phone_cell,if(phone_biz!='',phone_biz,'')))) addr from patient_data where pid =". add_escape_custom($p->patient->id));
 		$pdf->ezText($res['addr']);
 		$my_y = $pdf->y;
 		$pdf->ezNewPage();
@@ -311,10 +350,12 @@ class C_Prescription extends Controller {
 	        echo ("</tr>\n");
 	        echo ("<tr>\n");
 	        echo ("<td>\n");
-	        $res = sqlQuery("SELECT concat('<b>',f.name,'</b>\n',f.street,'\n',f.city,', ',f.state,' ',f.postal_code,'\nTel:',f.phone,if(f.fax != '',concat('\nFax: ',f.fax),'')) addr FROM users JOIN facility AS f ON f.name = users.facility where users.id ='" . mysql_real_escape_string($p->provider->id) . "'");
-	        $patterns = array ('/\n/','/Tel:/','/Fax:/');
-	        $replace = array ('<br>', xl('Tel').':', xl('Fax').':');
-	        $res = preg_replace($patterns, $replace, $res);
+	        $res = sqlQuery("SELECT concat('<b>',f.name,'</b>\n',f.street,'\n',f.city,', ',f.state,' ',f.postal_code,'\nTel:',f.phone,if(f.fax != '',concat('\nFax: ',f.fax),'')) addr FROM users JOIN facility AS f ON f.name = users.facility where users.id ='" . add_escape_custom($p->provider->id) . "'");
+                if (!empty($res)) {
+	            $patterns = array ('/\n/','/Tel:/','/Fax:/');
+	            $replace = array ('<br>', xl('Tel').':', xl('Fax').':');
+	            $res = preg_replace($patterns, $replace, $res);
+                }
                 echo ('<span class="large">' . $res['addr'] . '</span>');
 	        echo ("</td>\n");
 	        echo ("<td>\n");
@@ -350,10 +391,12 @@ class C_Prescription extends Controller {
 	        echo ("<td rowspan='2' class='bordered'>\n");
                 echo ('<b><span class="small">' . xl('Patient Name & Address') . '</span></b>'. '<br>');
                 echo ($p->patient->get_name_display() . '<br>');
-                $res = sqlQuery("SELECT  concat(street,'\n',city,', ',state,' ',postal_code,'\n',if(phone_home!='',phone_home,if(phone_cell!='',phone_cell,if(phone_biz!='',phone_biz,'')))) addr from patient_data where pid =". mysql_real_escape_string ($p->patient->id));
-                $patterns = array ('/\n/');
-	        $replace = array ('<br>');
-	        $res = preg_replace($patterns, $replace, $res);
+                $res = sqlQuery("SELECT  concat(street,'\n',city,', ',state,' ',postal_code,'\n',if(phone_home!='',phone_home,if(phone_cell!='',phone_cell,if(phone_biz!='',phone_biz,'')))) addr from patient_data where pid =". add_escape_custom($p->patient->id));
+                if (!empty($res)) {
+                    $patterns = array ('/\n/');
+                    $replace = array ('<br>');
+                    $res = preg_replace($patterns, $replace, $res);
+                }
                 echo ($res['addr']);
 	        echo ("</td>\n");
 	        echo ("<td class='bordered'>\n");
@@ -468,33 +511,33 @@ class C_Prescription extends Controller {
 
         function multiprintcss_postfooter() {
                 echo("<script language='JavaScript'>\n");
-                echo("window.print();\n");
+                echo("opener.top.printLogPrint(window);\n");
                 echo("</script>\n");
                 echo("</body>\n");
                 echo("</html>\n");
         }
 
 	function get_prescription_body_text($p) {
-		$body = '<b>' . xl('Rx') . ': ' . $p->get_drug() . ' ' . $p->get_size() . ' ' . $p->get_unit_display();
-		if ($p->get_form()) $body .= ' [' . $p->form_array[$p->get_form()] . "]";
+		$body = '<b>' . xlt('Rx') . ': ' . text($p->get_drug()) . ' ' . text($p->get_size()) . ' ' . text($p->get_unit_display());
+		if ($p->get_form()) $body .= ' [' . text($p->form_array[$p->get_form()]) . "]";
 		$body .= "</b>     <i>" .
-			$p->substitute_array[$p->get_substitute()] . "</i>\n" .
-			'<b>' . xl('Disp #') . ':</b> <u>' . $p->get_quantity() . "</u>\n" .
-			'<b>' . xl('Sig') . ':</b> ' . $p->get_dosage() . ' ' . $p->form_array[$p->get_form()] . ' ' .
-			$p->route_array[$p->get_route()] . ' ' . $p->interval_array[$p->get_interval()] . "\n";
+			text($p->substitute_array[$p->get_substitute()]) . "</i>\n" .
+			'<b>' . xlt('Disp #') . ':</b> <u>' . text($p->get_quantity()) . "</u>\n" .
+			'<b>' . xlt('Sig') . ':</b> ' . text($p->get_dosage()) . ' ' . text($p->form_array[$p->get_form()]) . ' ' .
+			text($p->route_array[$p->get_route()]) . ' ' . text($p->interval_array[$p->get_interval()]) . "\n";
 		if ($p->get_refills() > 0) {
-			$body .= "\n<b>" . xl('Refills') . ":</b> <u>" .  $p->get_refills();
+			$body .= "\n<b>" . xlt('Refills') . ":</b> <u>" .  text($p->get_refills());
 			if ($p->get_per_refill()) {
-				$body .= " " . xl('of quantity') . " " . $p->get_per_refill();
+				$body .= " " . xlt('of quantity') . " " . text($p->get_per_refill());
 			}
 			$body .= "</u>\n";
 		}
 		else {
-			$body .= "\n<b>" . xl('Refills') . ":</b> <u>0 (" . xl('Zero') . ")</u>\n";
+			$body .= "\n<b>" . xlt('Refills') . ":</b> <u>0 (" . xlt('Zero') . ")</u>\n";
 		}
 		$note = $p->get_note();
 		if ($note != '') {
-			$body .= "\n$note\n";
+			$body .= "\n" . text($note) . "\n";
 		}
 		return $body;
 	}
@@ -551,7 +594,7 @@ class C_Prescription extends Controller {
 			$this->function_argument_error();
 		}
 		require_once ($GLOBALS['fileroot'] . "/library/classes/class.ezpdf.php");
-		$pdf =& new Cezpdf($GLOBALS['rx_paper_size']);
+		$pdf = new Cezpdf($GLOBALS['rx_paper_size']);
 		$pdf->ezSetMargins($GLOBALS['rx_top_margin']
 			,$GLOBALS['rx_bottom_margin']
 			,$GLOBALS['rx_left_margin']
@@ -686,7 +729,7 @@ class C_Prescription extends Controller {
 
 	function _print_prescription($p, & $toFile) {
 		require_once ($GLOBALS['fileroot'] . "/library/classes/class.ezpdf.php");
-		$pdf =& new Cezpdf($GLOBALS['rx_paper_size']);
+		$pdf = new Cezpdf($GLOBALS['rx_paper_size']);
 		$pdf->ezSetMargins($GLOBALS['rx_top_margin']
 			,$GLOBALS['rx_bottom_margin']
 			,$GLOBALS['rx_left_margin']
@@ -724,7 +767,7 @@ class C_Prescription extends Controller {
 
 	function _print_prescription_old($p, & $toFile) {
 		require_once ($GLOBALS['fileroot'] . "/library/classes/class.ezpdf.php");
-		$pdf =& new Cezpdf($GLOBALS['rx_paper_size']);
+		$pdf = new Cezpdf($GLOBALS['rx_paper_size']);
 		$pdf->ezSetMargins($GLOBALS['rx_top_margin']
                       ,$GLOBALS['rx_bottom_margin']
 		                  ,$GLOBALS['rx_left_margin']
@@ -792,7 +835,7 @@ class C_Prescription extends Controller {
 		$this->assign("drug", $_POST['drug']);
 		$list = array();
 		if (!empty($_POST['drug'])) {
-			$list = @RxList::get_list($_POST['drug']);
+			$list = $this->RxList->get_list($_POST['drug']);
 		}
 
 		if (is_array($list)) {
@@ -826,7 +869,6 @@ class C_Prescription extends Controller {
 			if(empty($cmd))
 			{
 				$err .= " Send fax not set in includes/config.php";
-				break;
 			}
 			else
 			{
@@ -836,7 +878,6 @@ class C_Prescription extends Controller {
 				if(empty($faxFile))
 				{
 					$err .= " _print_prescription returned empty file";
-					break;
 				}
         $fileName = $GLOBALS['OE_SITE_DIR'] . "/documents/" . $p->get_id() .
           $p->get_patient_id() . "_fax_.pdf";
@@ -846,12 +887,10 @@ class C_Prescription extends Controller {
 				if(!$handle)
 				{
 					$err .= " Failed to open file $fileName to write fax to";
-					break;
 				}
 				if(fwrite($handle, $faxFile) === false)
 				{
 					$err .= " Failed to write data to $fileName";
-					break;
 				}
 				fclose($handle);
 				$args = " -n -d $faxNum $fileName";

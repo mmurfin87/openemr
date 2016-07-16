@@ -143,7 +143,7 @@ if ($_POST['formaction']=="generate") {
     if ($form_format == "pdf") {
       // documentation for ezpdf is here --> http://www.ros.co.nz/pdf/
       require_once ($GLOBALS['fileroot'] . "/library/classes/class.ezpdf.php");
-      $pdf =& new Cezpdf($GLOBALS['rx_paper_size']);
+      $pdf = new Cezpdf($GLOBALS['rx_paper_size']);
       $pdf->ezSetMargins($GLOBALS['rx_top_margin']
                       ,$GLOBALS['rx_bottom_margin']
                       ,$GLOBALS['rx_left_margin']
@@ -528,7 +528,7 @@ closedir($dh);
  <tr>
   <td colspan='4'>
     <div id="letter_toolbar" class='text' style="width: 100%; background-color: #ddd; padding: 5px; margin: 0px;">
-    Insert special field:
+    <?php echo xlt('Insert special field'); ?>:
     <select id="letter_field">
     <option value="">- <?php xl('Choose','e'); ?> -</option>
     <option value="<?php echo '{'.$FIELD_TAG['DATE'].'}'; ?>"><?php xl('Today\'s Date','e'); ?></option>

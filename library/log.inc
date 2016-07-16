@@ -3,9 +3,32 @@
 require_once(dirname(__FILE__). "/sql.inc");
 require_once(dirname(__FILE__). "/formdata.inc.php");
 
-function newEvent($event, $user, $groupname, $success, $comments="", $patient_id=null) {
+function newEvent($event, $user, $groupname, $success, $comments="", $patient_id=null, $log_from = 'open-emr', $menu_item = 'dashboard', $ccda_doc_id = 0) {
     $adodb = $GLOBALS['adodb']['db'];
     $crt_user=isset($_SERVER['SSL_CLIENT_S_DN_CN']) ?  $_SERVER['SSL_CLIENT_S_DN_CN'] : null;
+
+    // deal with comments encryption, if turned on
+    $encrypt_comment = 'No';
+    if (!empty($comments)) {
+        if ($GLOBALS["enable_auditlog_encryption"]) {
+            $comments =  aes256Encrypt($comments);
+            $encrypt_comment = 'Yes';
+        }
+    }
+    
+    if ($log_from == 'patient-portal') {
+        $sqlMenuItems = "SELECT * FROM patient_portal_menu";
+
+        $resMenuItems = sqlStatement($sqlMenuItems);
+        for($iter=0; $rowMenuItem=sqlFetchArray($resMenuItems); $iter++) {
+            $menuItems[$rowMenuItem['patient_portal_menu_id']] = $rowMenuItem['menu_name'];
+        }
+
+        $menuItemId = array_search($menu_item, $menuItems);
+        $sql = "insert into log ( date, event, user, patient_id, groupname, success, comments, 
+                log_from, menu_item_id, crt_user, ccda_doc_id) values ( NOW(), ?, ?, ?, ?, ?, ?, ?, ?,?, ?)";
+        $ret = sqlStatementNoLog($sql, array($event, $user, $patient_id, $groupname, $success, $comments,$log_from, $menuItemId,$crt_user, $ccda_doc_id));
+    } else {    
     /* More details added to the log */
     $sql = "insert into log ( date, event, user, groupname, success, comments, crt_user, patient_id) " .
             "values ( NOW(), " . $adodb->qstr($event) . "," . $adodb->qstr($user) .
@@ -14,6 +37,17 @@ function newEvent($event, $user, $groupname, $success, $comments="", $patient_id
             $adodb->qstr($crt_user) ."," . $adodb->qstr($patient_id). ")";
 
     $ret = sqlInsertClean_audit($sql);
+    }
+
+    // Send item to log_comment_encrypt for comment encyption tracking
+    $last_log_id = $GLOBALS['adodb']['db']->Insert_ID();
+    $encryptLogQry = "INSERT INTO log_comment_encrypt (log_id, encrypt, checksum) ".
+                     " VALUES ( ".
+                     $adodb->qstr($last_log_id) . "," .
+                     $adodb->qstr($encrypt_comment) . "," .
+                     "'')";
+    sqlInsertClean_audit($encryptLogQry); 
+
     if(($patient_id=="NULL") || ($patient_id==null))$patient_id=0;
 
     send_atna_audit_msg($user, $groupname, $event, $patient_id, $success, $comments);
@@ -123,7 +157,7 @@ function sql_checksum_of_modified_row($statement)
     /* Identifying the id for insert/replace statements for calculating the checksum */
         if((strcasecmp($tokens[0],"INSERT")==0) || (strcasecmp($tokens[0],"REPLACE")==0)){
         $table = $tokens[2];
-        $rid = mysql_insert_id($GLOBALS['dbh']);
+        $rid = generic_sql_insert_id();
 	/* For handling the table that doesn't have auto-increment column */
         if ($rid === 0 || $rid === FALSE) {
           if($table == "gacl_aco_map" || $table == "gacl_aro_groups_map" || $table == "gacl_aro_map" || $table == "gacl_axo_groups_map" || $table == "gacl_axo_map")
@@ -362,7 +396,7 @@ function create_rfc3881_msg($user, $group, $event, $patient_id, $outcome, $comme
     $patientCode = "";
     $patientDisplayName = "";
 
-    if ($eventIdDisplayName == 'Patient Record') {
+    if ($eventIDdisplayName == 'Patient Record') {
         $patientID = $patient_id;
         $pattientTypeCode = 1;
         $patientRole = 1;

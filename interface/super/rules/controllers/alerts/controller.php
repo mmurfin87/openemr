@@ -20,6 +20,11 @@ class Controller_alerts extends BaseController {
 
     function _action_listactmgr() {
         $c = new CdrAlertManager();
+        // Instantiating object if does not exist to avoid
+        //    "creating default object from empty value" warning.
+        if (!isset($this->viewBean)) {
+                $this->viewBean = new stdClass();
+        }
         $this->viewBean->rules = $c->populate();
         $this->set_view("list_actmgr.php");
     }
@@ -32,6 +37,7 @@ class Controller_alerts extends BaseController {
 		$actives = $_POST["active"];
 		$passives =  $_POST["passive"];
 		$reminders =  $_POST["reminder"];
+                $access_controls = $_POST["access_control"];
 		
 			
 		// The array of check-boxes we get from the POST are only those of the checked ones with value 'on'.
@@ -39,6 +45,7 @@ class Controller_alerts extends BaseController {
 		$actives_final = array();
 		$passives_final = array();
 		$reminders_final = array();
+
 			
 		$numrows = count($ids);
 		for ($i = 0; $i < $numrows; ++$i) {
@@ -69,8 +76,12 @@ class Controller_alerts extends BaseController {
 
 		// Reflect the changes to the database.
          $c = new CdrAlertManager();
-         $c->update($ids, $actives_final, $passives_final, $reminders_final);
-         
+         $c->update($ids, $actives_final, $passives_final, $reminders_final, $access_controls);
+         // Instantiating object if does not exist to avoid
+         //    "creating default object from empty value" warning.
+         if (!isset($this->viewBean)) {
+                $this->viewBean = new stdClass();
+         }
          $this->forward("listactmgr");
     }
 

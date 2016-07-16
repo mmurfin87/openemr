@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 // Copyright (C) 2010-2015 Rod Roark <rod@sunsetsystems.com>
 //
 // This program is free software; you can redistribute it and/or
@@ -23,8 +23,10 @@
 //   Armenian                       // xl('Armenian')
 //   Bahasa Indonesia               // xl('Bahasa Indonesia')
 //   Bengali                        // xl('Bengali')
+//   Bosnian                        // xl('Bosnian')
 //   Chinese (Simplified)           // xl('Chinese (Simplified)')
 //   Chinese (Traditional)          // xl('Chinese (Traditional)')
+//   Croatian                       // xl('Croatian')
 //   Czech                          // xl('Czech')
 //   Danish                         // xl('Danish')
 //   Dutch                          // xl('Dutch')
@@ -44,6 +46,7 @@
 //   Japanese                       // xl('Japanese')
 //   Korean                         // xl('Korean')
 //   Lithuanian                     // xl('Lithuanian')
+//   Marathi                        // xl('Marathi')
 //   Norwegian                      // xl('Norwegian')
 //   Persian                        // xl('Persian')
 //   Polish                         // xl('Polish')
@@ -51,8 +54,10 @@
 //   Portuguese (European)          // xl('Portuguese (European)')
 //   Romanian                       // xl('Romanian')
 //   Russian                        // xl('Russian')
+//   Serbian                        // xl('Serbian')
 //   Sinhala                        // xl('Sinhala')
 //   Slovak                         // xl('Slovak')
+//   Somali                         // xl('Somali')
 //   Spanish (Latin American)       // xl('Spanish (Latin American)')
 //   Spanish (Spain)                // xl('Spanish (Spain)')
 //   Swedish                        // xl('Swedish')
@@ -88,6 +93,7 @@ else {
 // List of user specific tabs and globals
 $USER_SPECIFIC_TABS = array('Appearance',
                             'Locale',
+                            'Report',
                             'Calendar',
                             'Connectors');
 $USER_SPECIFIC_GLOBALS = array('default_top_pane',
@@ -95,11 +101,19 @@ $USER_SPECIFIC_GLOBALS = array('default_top_pane',
                                'css_header',
                                'gbl_pt_list_page_size',
                                'gbl_pt_list_new_window',
+                               'drop_bottom',
                                'units_of_measurement',
                                'us_weight_format',
                                'date_display_format',
                                'time_display_format',
+                               'ledger_begin_date',
+                               'print_next_appointment_on_ledger',
+                               'calendar_view_type',
                                'event_color',
+                               'pat_trkr_timer',
+                               'ptkr_visit_reason',
+                               'checkout_roll_off',
+                               'ptkr_pt_list_new_window',                               
                                'erx_import_status_message');
 
 $GLOBALS_METADATA = array(
@@ -113,6 +127,7 @@ $GLOBALS_METADATA = array(
       array(
         'main_info.php' => xl('Calendar Screen'),
         '../new/new.php' => xl('Patient Search/Add Screen'),
+        '../../interface/patient_tracker/patient_tracker.php?skip_timeout_reset=1' => xl('Patient Flow Board'),		
       ),
       'main_info.php',                  // default = calendar
       xl('Type of screen layout')
@@ -143,7 +158,7 @@ $GLOBALS_METADATA = array(
     'css_header' => array(
       xl('Theme'),
       'css',
-      'style_oemr.css',
+      'style_light.css',
       xl('Pick a CSS theme.')
     ),
 
@@ -246,7 +261,21 @@ $GLOBALS_METADATA = array(
       'http://open-emr.org/',
       xl('URL for OpenEMR support.')
     ),
-      
+
+    'support_phone_number' => array(
+      xl('Support Phone Number'),
+      'text',
+      '',
+      xl('Phone Number for Vendor Support that Appears on the About Page.')
+    ),
+
+   'drop_bottom' => array(
+      xl('Remove Bottom Pane'),
+      'bool',                           // data type
+      '0',                              // default = false
+      xl('Removes the bottom pane by default on start up.')
+    ),
+	
     'encounter_page_size' => array(
       xl('Encounter Page Size'),
       array(
@@ -290,6 +319,21 @@ $GLOBALS_METADATA = array(
       '0',                              // default
       xl('Special treatment for the Vitals form')
     ),
+    
+    'insurance_information' => array(
+      xl('Show Additional Insurance Information'),               // descriptive name
+      array(
+        '0' => xl('None'),
+        '1' => xl('Address Only'),
+        '2' => xl('Address and Postal Code'),
+        '3' => xl('Address and State'),
+        '4' => xl('Address, State and Postal Code'),
+        '5' => xl('Postal Code and Box Number'),
+      ),
+      '4',                              // default
+      xl('Show Insurance Address Information in the Insurance Panel of Demographics.')
+    
+  ),
 
   ),
 
@@ -476,7 +520,21 @@ $GLOBALS_METADATA = array(
       'num',
       '3',
       xl('If YMD is selected for age display, switch to just Years when patients older than this value in years')
-    ),      
+    ),
+    // Reference - https://en.wikipedia.org/wiki/Workweek_and_weekend#Around_the_world
+    'weekend_days' => array(
+      xl('Your weekend days'),
+      array(
+         '6,0' => xl('Saturday') . ' - ' . xl('Sunday'),
+          '0' => xl('Sunday'),
+          '5' => xl('Friday'),
+          '6' => xl('Saturday'),
+          '5,6' => xl('Friday') .' - ' . xl('Saturday'),
+      ),
+      '6,0'
+      ,xl('which days are your weekend days?')
+  )
+
   ),
 
   // Features Tab
@@ -487,7 +545,6 @@ $GLOBALS_METADATA = array(
       xl('Specific Application'),
       array(
         '0' => xl('None'),
-        '1' => xl('Athletic team'),
         '2' => xl('IPPF'),
         '3' => xl('Weight loss clinic'),
       ),
@@ -646,13 +703,6 @@ $GLOBALS_METADATA = array(
       '0',                              // default = false
       xl('This will force the Billing Widget in the Patient Summary screen to always be open.')
     ),
-      
-    'num_past_appointments_to_show' => array(
-      xl('Past Appointment Display Widget'),
-      'num',                           // data type
-      '0',                             // default = false
-      xl('A positive number will show that many past appointments on a Widget in the Patient Summary screen (a negative number will show the past appointments in descending order)')
-    ),      
 
     'activate_ccr_ccd_report' => array(
       xl('Activate CCR/CCD Reporting'),
@@ -681,7 +731,7 @@ $GLOBALS_METADATA = array(
         '0' => xl('08/05{{CMS 1500 format date revision setting in globals}}'),
         '1' => xl('02/12{{CMS 1500 format date revision setting in globals}}'),
       ),
-      '0',                              // default
+      '1',                              // default
       xl('This specifies which revision of the form the billing module should generate')
     ),
      
@@ -696,7 +746,6 @@ $GLOBALS_METADATA = array(
       xl('This specifies whether to include date in Box 31.')
     ),
 
-      
      'cms_1500_box_31_date' => array(
       xl('CMS 1500: Date in Box 31 (Signature)'),
       array(
@@ -714,6 +763,26 @@ $GLOBALS_METADATA = array(
 		'1',                              // default = true
 		xl('Enable amendments feature')
 	),
+
+    'allow_pat_delete' => array(
+       xl('Allow Administrators to Delete Patients'),
+	   'bool',                           // data type
+	   '0',                              // default = false 
+	   xl('Allow Administrators to Delete Patients')
+
+    ),	
+         
+    'observation_results_immunization' => array(
+      xl('Immunization Observation Results'),
+      'bool',                           // data type
+      '1',                              // default
+      xl('Observation Results in Immunization')
+    ),
+	
+   ),   
+    // Report Tab
+    //
+    'Report' => array(
 	
     'use_custom_daysheet' => array(
       xl('Use Custom End of Day Report'),
@@ -737,7 +806,193 @@ $GLOBALS_METADATA = array(
       xl('This specifies the Printing of the Custom End of Day Report grouped Provider or allow the Printing of Totals Only')
     ),
 
+    'ledger_begin_date' => array(
+      xl('Beginning Date for Ledger Report'),
+      array(
+        'Y1' => xl('One Year Ago'),
+        'Y2' => xl('Two Years Ago'),
+        'M6' => xl('Six Months Ago'),
+        'M3' => xl('Three Months Ago'),
+        'M1' => xl('One Month Ago'),
+        'D1' => xl('One Day Ago'),        
+      ),                       
+      'Y1',                     // default = One Year
+      xl('This is the Beginning date for the Ledger Report.')
+    ),
+	
+    'print_next_appointment_on_ledger' => array(
+       xl('Print the Next Appointment on the Bottom of the Ledger'),
+	   'bool',                           // data type
+	   '1',                              // default = true
+	   xl('This Will Print the Next Appointment on the Bottom of the Patient Ledger')
+    ),
+    
+    'sales_report_invoice' => array(
+      xl('Display Invoice Number or Patient Name or Both in the Sales Report'),
+      array(
+        '0' => xl('Invoice Number'),
+        '1' => xl('Patient Name and ID'),
+        '2' => xl('Patient Name and Invoice'),   
+      ),   
+      '2',                              // default = 2
+      xl('This will Display the Invoice Number in the Sales Report or the Patient Name and ID or Patient Name and Invoice Number.')
+    ), 
+	
+    'cash_receipts_report_invoice' => array(
+      xl('Display Invoice Number or Patient Name in the Cash Receipt Report'),
+      array(
+        '0' => xl('Invoice Number'),
+        '1' => xl('Patient Name'),  
+      ),   
+      '0',                              // default = 0
+      xl('Display Invoice Number or Patient Name in the Cash Receipt Report')
+    ),
+	
   ),
+    
+  // Billing Tab
+    
+  'Billing' => array(
+
+    'default_search_code_type' => array(
+      xl('Default Search Code Type'),
+      'all_code_types',                           // data type
+      'ICD10',                 // default
+      xl('The default code type to search for in the Fee Sheet.')
+    ),
+    
+    'support_fee_sheet_line_item_provider' => array(
+       xl('Support provider in line item in fee sheet'),
+	   'bool',                           // data type
+	   '0',                              // default = false
+	   xl('This Enables provider in line item in the fee sheet')
+    ),
+
+    'default_fee_sheet_line_item_provider' => array(
+       xl('Default to a provider for line item in the fee sheet'),
+	   'bool',                           // data type
+	   '0',                              // default = false
+	   xl('Default to a provider for line item in the fee sheet.(only applicable if Support line item billing in option above)')
+    ),	
+ 
+    'replicate_justification' => array(
+      xl('Automatically replicate justification codes in Fee Sheet'),
+      'bool',                           // data type
+      '0',                              // default = false
+      xl('Automatically replicate justification codes in Fee Sheet (basically fills in the blanks with the justification code above it).')
+    ),
+ 
+    'display_units_in_billing' => array(
+      xl('Display the Units Column on the Billing Screen'),
+	   'bool',                           // data type
+	   '0',                              // default = false
+      xl('Display the Units Column on the Billing Screen')
+    ),
+    
+    'notes_to_display_in_Billing' => array(
+      xl('Which notes are to be displayed in the Billing Screen'),
+      array(
+        '0' => xl('None'),
+        '1' => xl('Encounter Billing Note'),
+        '2' => xl('Patient Billing Note'), 
+        '3' => xl('All'),  		
+      ),   
+      '3',
+     xl('Display the Encounter Billing Note or Patient Billing Note or Both in the Billing Screen.')
+    ),
+  
+  	'use_custom_statement' => array(
+      xl('Use Custom Statement'),
+      'bool',                           // data type
+      '0',                              // default = false
+      xl('This will use the custom Statment showing the description instead of the codes.')
+    ),
+	 
+  	'statement_bill_note_print' => array(
+      xl('Print Patient Billing Note'),
+      'bool',                           // data type
+      '0',                              // default = false
+      xl('This will allow printing of the Patient Billing Note on the statements.')
+    ),  
+	
+  	'use_dunning_message' => array(
+      xl('Use Custom Dunning Messages'),
+      'bool',                           // data type
+      '0',                              // default = false
+      xl('This will allow use of the custom Dunning Messages on the statements.')
+    ),
+	
+    'first_dun_msg_set' => array(
+      xl('Number of days before showing first account message'),
+      'num',                           // data type
+      '30',
+      xl('Number of days before showing first account message.')
+    ),
+
+    'first_dun_msg_text' => array(
+      xl('First account message'),
+      'text',                           // data type
+      '',
+      xl('Text for first account message.')
+    ),
+    
+    'second_dun_msg_set' => array(
+      xl('Number of days before showing second account message'),
+      'num',                           // data type
+      '60',
+      xl('Number of days before showing second account message')
+    ),
+
+    'second_dun_msg_text' => array(
+      xl('Second account message'),
+      'text',                           // data type
+      '',
+      xl('Text for second account message.')
+    ),  
+
+    'third_dun_msg_set' => array(
+      xl('Number of days before showing third account message'),
+      'num',                           // data type
+      '90',
+      xl('Number of days before showing third account message')
+    ),
+
+    'third_dun_msg_text' => array(
+      xl('Third account message'),
+      'text',                           // data type
+      '',
+      xl('Text for third account message.')
+    ),
+    
+    'fourth_dun_msg_set' => array(
+      xl('Number of days before showing fourth account message'),
+      'num',                           // data type
+      '120',
+      xl('Number of days before showing fourth account message')
+    ),
+
+    'fourth_dun_msg_text' => array(
+      xl('Fourth account message'),
+      'text',                           // data type
+      '',
+      xl('Text for fourth account message.')
+    ),
+
+    'fifth_dun_msg_set' => array(
+      xl('Number of days before showing fifth account message'),
+      'num',                           // data type
+      '150',
+      xl('Number of days before showing fifth account message')
+    ),
+
+    'fifth_dun_msg_text' => array(
+      xl('Fifth account message'),
+      'text',                           // data type
+      '',
+      xl('Text for fifth account message.')
+    ),
+  ),
+  
     // E-Sign Tab
     //
     'E-Sign' => array(
@@ -787,6 +1042,7 @@ $GLOBALS_METADATA = array(
   ),
     //Documents Tab
     'Documents' => array(
+
         'document_storage_method' => array(
             xl('Document Storage Method'),
             array(
@@ -833,6 +1089,13 @@ $GLOBALS_METADATA = array(
             xl('Enable log for document uploads/downloads to CouchDB'),
         ),
 
+    'expand_document_tree' => array(
+      xl('Expand All Document Categories'),
+      'bool',                           // data type
+      '0',                              // default = false
+      xl('Expand All Document Categories by Default')
+    ),
+
     'patient_id_category_name' => array(
       xl('Patient ID Category Name'),
       'text',                           // data type
@@ -860,7 +1123,18 @@ $GLOBALS_METADATA = array(
       'Lab Report',                     // default
       xl('Document category name for storage of electronically received MDM documents.')
     ),
-
+    'generate_doc_thumb' => array(
+        xl('Generate thumbnail'),
+        'bool',
+        '0',
+        xl('Generate thumbnail images'),
+    ),
+    'thumb_doc_max_size' => array(
+        xl('Thumbnail size'),
+        'text',          // data type
+        '100',           // default
+        xl('Maximum size of thumbnail file')
+    ),
   ),
 
   // Calendar Tab
@@ -902,6 +1176,26 @@ $GLOBALS_METADATA = array(
       xl('The time granularity of the calendar and the smallest interval in minutes for an appointment slot.')
     ),
 
+    'calendar_view_type' => array(
+      xl('Default Calendar View'),
+      array(
+       'day' => xl('Day'),
+       'week' => xl('Week'),
+       'month' => xl('Month'),
+      ),
+      'day',                              // default
+      xl('This sets the Default Calendar View, Default is Day.')
+    ),
+     'first_day_week' => array(
+       xl('First day in the week') ,
+       array(
+         '1' => xl('Monday'),
+         '0' => xl('Sunday'),
+         '6' => xl('Saturday')
+       ),
+       '1',
+       xl('Your first day in the week.')
+     ),
     'calendar_appt_style' => array(
       xl('Appointment Display Style'),
       array(
@@ -914,6 +1208,37 @@ $GLOBALS_METADATA = array(
       xl('This determines how appointments display on the calendar.')
     ),
 
+    'event_color' => array(
+      xl('Appointment/Event Color'),
+      array(
+        '1' => 'Category Color Schema',
+        '2' => 'Facility Color Schema',
+      ),                           // data type
+      '1',                              // default
+      xl('This determines which color schema used for appointment')
+    ),
+	
+    'number_of_appts_to_show' => array(
+      xl('Appointments - Patient Summary - Number to Display'),
+      'num',                           
+      '10',                            
+      xl('Number of Appointments to display in the Patient Summary')
+    ),
+
+    'patient_portal_appt_display_num' => array(
+      xl('Appointments - Onsite Patient Portal - Number to Display'),
+      'num',                           
+      '20',                            
+      xl('Number of Appointments to display in the Onsite Patient Portal')
+    ),
+
+    'num_past_appointments_to_show' => array(
+      xl('Past Appointment Display Widget'),
+      'num',                           // data type
+      '0',                             // default = false
+      xl('A positive number will show that many past appointments on a Widget in the Patient Summary screen (a negative number will show the past appointments in descending order)')
+    ),      
+	
     'docs_see_entire_calendar' => array(
       xl('Providers See Entire Calendar'),
       'bool',                           // data type
@@ -925,17 +1250,85 @@ $GLOBALS_METADATA = array(
       xl('Auto-Create New Encounters'),
       'bool',                           // data type
       '1',                              // default
-      xl('Automatically create a new encounter when appointment status is set to "@" (arrived).')
+      xl('Automatically create a new encounter when an appointment check in status is selected.')
     ),
     
-    'event_color' => array(
-      xl('Appointment/Event Color'),
+    'disable_pat_trkr' => array(
+      xl('Disable Patient Flow Board'),
+      'bool',                           // data type
+      '0',                              // default
+      xl('Do not display the patient flow board.')
+    ),
+
+    'ptkr_pt_list_new_window' => array(
+      xl('Open Demographics in New Window from Patient Flow Board'),
+      'bool',                           // data type
+      '0',                              // default = false
+      xl('When Checked, Demographics Will Open in New Window from Patient Flow Board.')
+    ),
+    
+    'ptkr_visit_reason' => array(
+      xl('Show Visit Reason in Patient Flow Board'),
+      'bool',                           // data type
+      '0',                              // default = false
+      xl('When Checked, Visit Reason Will Show in Patient Flow Board.')
+    ),  
+
+    'ptkr_show_pid' => array(
+      xl('Show Patient ID in Patient Flow Board'),
+      'bool',                           // data type
+      '1',                              // default = true
+      xl('When Checked, Patient ID Will Show in Patient Flow Board.')
+    ),  
+	
+    'ptkr_show_encounter' => array(
+      xl('Show Patient Encounter Number in Patient Flow Board'),
+      'bool',                           // data type
+      '1',                              // default = true
+      xl('When Checked, Patient Encounter Number Will Show in Patient Flow Board.')
+    ),  
+	
+    'pat_trkr_timer' => array(
+      xl('Patient Flow Board Timer Interval'),
       array(
-        '1' => 'Category Color Schema',
-        '2' => 'Facility Color Schema',
-      ),                           // data type
-      '1',                              // default
-      xl('This determines which color schema used for appointment')
+       '0' => 'No automatic refresh',
+       '0:10' => '10',
+       '0:20' => '20',
+       '0:30' => '30',
+       '0:40' => '40',
+       '0:50' => '50',
+       '0:59' => '60',
+      ),
+      '0:20',                              // default
+      xl('The screen refresh time in Seconds for the Patient Flow Board Screen.')
+    ),
+	
+    'checkout_roll_off' => array(
+      xl('Number of Minutes to display completed checkouts'),
+      'num',
+      '0',                       // default
+      xl('Number of Minutes to display completed checkouts. Zero is continuous display')
+    ),
+    
+    'drug_screen' => array(
+      xl('Enable Random Drug Testing'),
+     'bool',                           // data type
+      '0',                              // default
+      xl('Allow Patient Flow Board to Select Patients for Drug Testing.')
+    ),
+	
+    'drug_testing_percentage' => array(
+      xl('Percentage of Patients to Drug Test'),
+      'num',
+      '33',                       // default
+      xl('Percentage of Patients to select for Random Drug Testing.')
+    ),
+	
+    'maximum_drug_test_yearly' => array(
+      xl('Maximum number of times a Patient can be tested in a year'),
+      'num',
+      '0',                       // default
+      xl('Maximum number of times a Patient can be tested in a year. Zero is no limit.')
     ),
 
   ),
@@ -1019,6 +1412,12 @@ $GLOBALS_METADATA = array(
       '',                               // default
       xl('Email address, if any, to receive emergency login user activation messages.')
     ),
+     'new_validate' => array(
+      xl('New form validation'),
+      'bool',
+      '0',
+      xl('New form validation')
+     ),
 
   ),
 
@@ -1086,6 +1485,17 @@ $GLOBALS_METADATA = array(
       xl('Must be empty if SMTP authentication is not used.')
     ),
 
+    'SMTP_SECURE' => array(
+      xl('SMTP Security Protocol'),
+      array(
+        '' => xl('None'),
+        'ssl'  => 'SSL',
+        'tls'  => 'TLS'
+      ),
+      '',
+      xl('SMTP security protocol to connect with. Required by some servers such as gmail.')
+    ),
+	
     'EMAIL_NOTIFICATION_HOUR' => array(
       xl('Email Notification Hours'),
       'num',                            // data type
@@ -1132,21 +1542,21 @@ $GLOBALS_METADATA = array(
       xl('Phone Gateway Username'),
       'text',                           // data type
       '',                               // default
-      xl('Username for Phone Gateway. Automated VOIP service provided by Maviq. Please visit http://signup.maviq.com for more information.')
+      xl('Username for Phone Gateway.')
     ),
     
     'phone_gateway_password' => array(
       xl('Phone Gateway Password'),
       'text',                           // data type
       '',                               // default
-      xl('Password for Phone Gateway. Automated VOIP service provided by Maviq. Please visit http://signup.maviq.com for more information.')
+      xl('Password for Phone Gateway.')
     ),
     
     'phone_gateway_url' => array(
       xl('Phone Gateway URL'),
       'text',                           // data type
       '',                               // default
-      xl('URL for Phone Gateway. Automated VOIP service provided by Maviq. Please visit http://signup.maviq.com for more information.')
+      xl('URL for Phone Gateway.')
     ),
 
   ),
@@ -1161,19 +1571,40 @@ $GLOBALS_METADATA = array(
       '1',                               // default
       xl('Enable Clinical Decisions Rules (CDR)')
     ),
-    
-    'enable_cdr_crw' => array(
-      xl('Enable Clinical Reminder Widget'),
+
+    'enable_allergy_check' => array(
+      xl('Enable Allergy Check'),
       'bool',                           // data type
       '1',                               // default
-      xl('Enable Clinical Reminder Widget')
+      xl('Enable Allergy Check Against Medications and Prescriptions')
+    ),
+
+    'enable_alert_log' => array(
+      xl('Enable Alert Log'),
+      'bool',                           // data type
+      '1',                               // default
+      xl('Enable Alert Logging')
+    ),
+
+    'enable_cdr_new_crp' => array(
+      xl('Enable Clinical Passive New Reminder(s) Popup'),
+      'bool',                           // data type
+      '1',                               // default
+      xl('Enable Clinical Passive New Reminder(s) Popup')
+    ),
+
+    'enable_cdr_crw' => array(
+      xl('Enable Clinical Passive Reminder Widget'),
+      'bool',                           // data type
+      '1',                               // default
+      xl('Enable Clinical Passive Reminder Widget')
     ),
 
     'enable_cdr_crp' => array(
-      xl('Enable Clinical Reminder Popup'),
+      xl('Enable Clinical Active Reminder Popup'),
       'bool',                           // data type
       '1',                               // default
-      xl('Enable Clinical Reminder Popup')
+      xl('Enable Clinical Active Reminder Popup')
     ),
 
     'enable_cdr_prw' => array(
@@ -1394,6 +1825,17 @@ $GLOBALS_METADATA = array(
       xl('Billing log setting to append or overwrite the log file.')
     ),
 
+    'gbl_print_log_option' => array(
+      xl('Printing Log Option'),
+      array(
+        '0' => xl('No logging'),
+        '1' => xl('Hide print feature'),
+        '2' => xl('Log entire document'),
+      ),
+      '0',                               // default
+      xl('Individual pages can override 2nd and 3rd options by implementing a log message.')
+    ),
+
   ),
 
   // Miscellaneous Tab
@@ -1547,7 +1989,6 @@ $GLOBALS_METADATA = array(
       '/mnt/scan_docs',                 // default
       xl('Location where scans are stored.')
     ),
-
   ),
 
   // Portal Tab
@@ -1566,6 +2007,13 @@ $GLOBALS_METADATA = array(
       'text',                           // data type
       'https://your_web_site.com/openemr/patients',
       xl('Website link for the Onsite Patient Portal.')
+    ),
+
+    'portal_onsite_document_download' => array(
+      xl('Enable Onsite Patient Portal Document Download'),
+      'bool',                           // data type
+      '1',
+      xl('Enables the ability to download documents in the Onsite Patient Portal by the user.')
     ),
     
     'portal_offsite_enable' => array(
@@ -1646,34 +2094,6 @@ $GLOBALS_METADATA = array(
   // Connectors Tab
   //
   'Connectors' => array(
-
-    'lab_exchange_enable' => array(
-      xl('Enable Lab Exchange'),
-      'bool',                           // data type
-      '0',
-      xl('Enable the Medical Information Integration, LLC Lab Exchange Service.')
-    ),
-
-    'lab_exchange_siteid' => array(
-      xl('Lab Exchange Site ID'),
-      'text',                           // data type
-      '3',
-      xl('Site ID for the Medical Information Integration, LLC Lab Exchange Service.')
-    ),
-
-    'lab_exchange_token' => array(
-      xl('Lab Exchange Token ID'),
-      'text',                           // data type
-      '12345',
-      xl('Token ID for the Medical Information Integration, LLC Lab Exchange Service.')
-    ),
-
-    'lab_exchange_endpoint' => array(
-      xl('Lab Exchange Site Address'),
-      'text',                           // data type
-      'https://len.mi-squared.com:29443/len/api',
-      xl('Contact Medical Information Integration, LLC at http://mi-squared.com for Lab Exchange Service.')
-    ),
 
     'erx_enable' => array(
       xl('Enable NewCrop eRx Service'),
@@ -2298,5 +2718,8 @@ $GLOBALS_METADATA = array(
     ),
 	
    ),
+   
+
+   
 );
 ?>

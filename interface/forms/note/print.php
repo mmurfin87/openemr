@@ -16,7 +16,7 @@ $form_name = "note";
 if ($_GET['id'] != "") $obj = formFetch("form_".$form_name, $_GET["id"]);
 /* remove the time-of-day from the date fields */
 if ($obj['date_of_signature'] != "") {
-    $dateparts = split(" ", $obj['date_of_signature']);
+    $dateparts = explode(" ", $obj['date_of_signature']);
     $obj['date_of_signature'] = $dateparts[0];
 }
 ?>
@@ -63,8 +63,8 @@ if ($obj['date_of_signature'] != "") {
 // jQuery stuff to make the page a little easier to use
 
 $(document).ready(function(){
-    window.print();
-    window.close();
+    var win = top.printLogPrint ? top : opener.top;
+    if (win.printLogPrint(window)) window.close();
 });
 
 </script>

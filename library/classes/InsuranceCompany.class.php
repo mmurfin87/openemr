@@ -37,6 +37,7 @@ define ("FREEB_TYPE_MUTUALLY_DEFINED",26);
 
 require_once("PhoneNumber.class.php");
 require_once("Address.class.php");
+require_once("X12Partner.class.php");
 
 
 require_once("ORDataObject.class.php");
@@ -131,7 +132,7 @@ class InsuranceCompany extends ORDataObject{
 	/**
 	 * Constructor sets all Insurance Company attributes to their default value
 	 */
-	function InsuranceCompany($id = "", $prefix = "")	{
+	function __construct($id = "", $prefix = "")	{
 		$this->id = $id;
 		$this->name = "";
 		$this->_table = "insurance_companies";
@@ -143,6 +144,7 @@ class InsuranceCompany extends ORDataObject{
 		if ($id != "") {
 			$this->populate();
 		}
+		$this->X12Partner = new X12Partner();
 	}
 
 	function set_id($id = "") {
@@ -267,7 +269,7 @@ class InsuranceCompany extends ORDataObject{
 	}
 
 	function get_x12_default_partner_name() {
-		$xa = $this->_utility_array(X12Partner::x12_partner_factory());
+		$xa = $this->_utility_array($this->X12Partner->x12_partner_factory());
 		return $xa[$this->get_x12_default_partner_id()];
 	}
 
@@ -289,7 +291,7 @@ class InsuranceCompany extends ORDataObject{
 		$pharmacy_array = array();
 		$sql = "Select p.id, p.name, a.city, a.state from " . $this->_table ." as p INNER JOIN addresses as a on  p.id = a.foreign_id";
 		$res = sqlQ($sql);
-		while ($row = mysql_fetch_array($res) ) {
+		while ($row = sqlFetchArray($res) ) {
 				$d_string = $row['city'];
 				if (!empty($row['city']) && $row['state']) {
 					$d_string .= ", ";
@@ -305,17 +307,17 @@ class InsuranceCompany extends ORDataObject{
 			 $city= "";
 		}
 		else {
-			$city = " WHERE city = " . mysql_real_escape_string($foreign_id);
+			$city = " WHERE city = " . add_escape_custom($foreign_id);
 		}
 		$p = new InsuranceCompany();
 		$icompanies = array();
-		$sql = "SELECT p.id, a.city FROM  " . $p->_table . " as p INNER JOIN addresses as a on p.id = a.foreign_id " .$city . " " . mysql_real_escape_string($sort);
+		$sql = "SELECT p.id, a.city FROM  " . $p->_table . " as p INNER JOIN addresses as a on p.id = a.foreign_id " .$city . " " . add_escape_custom($sort);
 
 		//echo $sql . "<bR />";
 		$results = sqlQ($sql);
 		//echo "sql: $sql";
 		//print_r($results);
-		while($row = mysql_fetch_array($results) ) {
+		while($row = sqlFetchArray($results) ) {
 				$icompanies[] = new InsuranceCompany($row['id']);
 		}
 		return $icompanies;

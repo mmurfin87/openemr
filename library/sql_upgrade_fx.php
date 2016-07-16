@@ -144,6 +144,32 @@ function tableHasIndex($tblname, $colname) {
   return (empty($row)) ? false : true;
 }
 
+
+/**
+ * Check if a table has a certain engine
+ *
+ * @param string $tblname database table Name
+ * @param string $engine engine name ( myisam, memory, innodb )...
+ * @return boolean true if the table has been created using specified engine
+ */
+function tableHasEngine($tblname, $engine) {
+  $row = sqlQuery( 'SELECT 1 FROM information_schema.tables WHERE table_name=? AND engine=? AND table_type="BASE TABLE"', array($tblname,$engine ) );
+  return (empty($row)) ? false : true;
+}
+
+
+
+/**
+* Check if a list exists.
+*
+* @param  string  $option_id  Sql List Option ID
+* @return boolean           returns true if the list exists
+*/
+function listExists($option_id) {
+  $row = sqlQuery("SELECT * FROM list_options WHERE list_id = 'lists' AND option_id = ?", array($option_id));
+  if (empty($row)) return false;
+  return true;  
+}
 /**
 * Function to migrate the Clickoptions settings (if exist) from the codebase into the database.
 *  Note this function is only run once in the sql upgrade script (from 4.1.1 to 4.1.2) if the
@@ -176,6 +202,102 @@ function clickOptionsMigrate() {
     fclose($file_handle);
   }
 }
+/**
+*  Function to create list Occupation.
+*  Note this function is only run once in the sql upgrade script  if the list Occupation does not exist
+*/
+function CreateOccupationList() {
+   $res = sqlStatement("SELECT DISTINCT occupation FROM patient_data WHERE occupation <> ''"); 
+   while($row = sqlFetchArray($res)) {
+    $records[] = $row['occupation'];  
+   }
+   sqlStatement("INSERT INTO list_options (list_id, option_id, title) VALUES('lists', 'Occupation', 'Occupation')");
+   if(count($records)>0) {
+    $seq = 0;    
+    foreach ($records as $key => $value) {
+     sqlStatement("INSERT INTO list_options ( list_id, option_id, title, seq) VALUES ('Occupation', ?, ?, ?)", array($value, $value, ($seq+10)));
+     $seq = $seq + 10;     
+    }   
+   }
+}
+/**
+*  Function to create list reaction.
+*  Note this function is only run once in the sql upgrade script  if the list reaction does not exist
+*/
+function CreateReactionList() {
+   $res = sqlStatement("SELECT DISTINCT reaction FROM lists WHERE reaction <> ''"); 
+   while($row = sqlFetchArray($res)) {
+    $records[] = $row['reaction'];  
+   }
+   sqlStatement("INSERT INTO list_options (list_id, option_id, title) VALUES('lists', 'reaction', 'Reaction')");
+   if(count($records)>0) {
+    $seq = 0;    
+    foreach ($records as $key => $value) {
+     sqlStatement("INSERT INTO list_options ( list_id, option_id, title, seq) VALUES ('reaction', ?, ?, ?)", array($value, $value, ($seq+10)));
+     $seq = $seq + 10;
+    }   
+   }
+}
+
+/*
+* Function to add existing values in the immunization table to the new immunization manufacturer list
+* This function will be executed always, but only missing values will ne inserted to the list
+*/
+function CreateImmunizationManufacturerList() {
+  $res = sqlStatement("SELECT DISTINCT manufacturer FROM immunizations WHERE manufacturer <> ''");
+  while($row = sqlFetchArray($res)) {
+    $records[] = $row['manufacturer'];  
+  }
+  sqlStatement("INSERT INTO list_options (list_id, option_id, title) VALUES ('lists','Immunization_Manufacturer','Immunization Manufacturer')");    
+  if(count($records)>0) {
+    $seq = 0;
+    foreach ($records as $key => $value) {      
+      sqlStatement("INSERT INTO list_options ( list_id, option_id, title, seq) VALUES ('Immunization_Manufacturer', ?, ?, ?)", array($value, $value, ($seq+10)));
+      $seq = $seq + 10;
+    }   
+  }
+}
+
+/**
+ * Request to information_schema
+ * 
+ * @param array $arg possible arguments: engine, table_name
+ * @return SQLStatement
+ */
+function getTablesList( $arg = array() ) {
+    $binds = array();
+    $sql = 'SELECT table_name FROM information_schema.tables WHERE table_schema=database() AND table_type="BASE TABLE"';
+    
+    if( !empty($arg['engine'])) {
+        $binds[] = $arg['engine'];
+        $sql .= ' AND engine=?';
+    }
+    
+    if( !empty($arg['table_name'])) {
+        $binds[] = $arg['table_name'];
+        $sql .= ' AND table_name=?';        
+    }
+    $res = sqlStatement( $sql, $binds );
+
+    $records = array();
+    while($row = sqlFetchArray($res)) {
+        $records[ $row['table_name'] ] = $row['table_name'];  
+    }
+    return $records;
+}
+
+
+/**
+ * Convert table engine. 
+ * @param string $table
+ * @param string $engine
+ * ADODB will fail if there was an error during conversion
+ */
+function MigrateTableEngine( $table, $engine ) {
+  $r = sqlStatement('ALTER TABLE `'.$table.'` ENGINE=?', $engine );
+  return true;
+}
+
 
 /**
 * Upgrade or patch the database with a selected upgrade/patch file.
@@ -189,6 +311,10 @@ function clickOptionsMigrate() {
 * #IfTable
 *   argument: table_name
 *   behavior: if the table_name does exist, the block will be executed
+*
+* #IfColumn
+*   arguments: table_name colname
+*   behavior:  if the table and column exist,  the block will be executed
 *
 * #IfMissingColumn
 *   arguments: table_name colname
@@ -242,6 +368,26 @@ function clickOptionsMigrate() {
 * #IfNotMigrateClickOptions
 *   Custom function for the importing of the Clickoptions settings (if exist) from the codebase into the database
 *
+* #IfNotListOccupation
+* Custom function for creating Occupation List
+* 
+* #IfNotListReaction
+* Custom function for creating Reaction List
+*
+* #IfTextNullFixNeeded
+*   desc: convert all text fields without default null to have default null.
+*   arguments: none
+* 
+* #IfTableEngine
+*   desc:      Execute SQL if the table has been created with given engine specified.
+*   arguments: table_name engine
+*   behavior:  Use when engine conversion requires more than one ALTER TABLE
+*
+* #IfInnoDBMigrationNeeded
+*   desc: find all MyISAM tables and convert them to InnoDB.
+*   arguments: none
+*   behavior: can take a long time.
+* 
 * #EndIf
 *   all blocks are terminated with a #EndIf statement.
 *
@@ -259,7 +405,7 @@ function upgradeFromSqlFile($filename) {
   if ($fd == FALSE) {
     echo "ERROR.  Could not open '$fullname'.\n";
     flush();
-    break;
+    return;
   }
 
   $query = "";
@@ -279,6 +425,16 @@ function upgradeFromSqlFile($filename) {
     }
     else if (preg_match('/^#IfTable\s+(\S+)/', $line, $matches)) {
       $skipping = ! tableExists($matches[1]);
+      if ($skipping) echo "<font color='green'>Skipping section $line</font><br />\n";
+    }
+    else if (preg_match('/^#IfColumn\s+(\S+)\s+(\S+)/', $line, $matches)) {
+      if (tableExists($matches[1])) {
+        $skipping = !columnExists($matches[1], $matches[2]);
+      }
+      else {
+        // If no such table then the column is deemed "missing".
+        $skipping = true;
+      }
       if ($skipping) echo "<font color='green'>Skipping section $line</font><br />\n";
     }
     else if (preg_match('/^#IfMissingColumn\s+(\S+)\s+(\S+)/', $line, $matches)) {
@@ -411,6 +567,91 @@ function upgradeFromSqlFile($filename) {
       }
       if ($skipping) echo "<font color='green'>Skipping section $line</font><br />\n";
     }
+    else if (preg_match('/^#IfNotListOccupation/', $line)) {
+      if ( (listExists("Occupation")) || (!columnExists('patient_data','occupation')) ) {
+        $skipping = true;
+      }
+      else {
+        // Create Occupation list
+        CreateOccupationList(); 
+        $skipping = false;
+        echo "<font color='green'>Built Occupation List</font><br />\n";
+      }
+      if ($skipping) echo "<font color='green'>Skipping section $line</font><br />\n";
+    }
+    else if (preg_match('/^#IfNotListReaction/', $line)) {
+      if ( (listExists("reaction")) || (!columnExists('lists','reaction')) ) {
+        $skipping = true;
+      }
+      else {
+        // Create Reaction list
+        CreateReactionList(); 
+        $skipping = false;
+        echo "<font color='green'>Built Reaction List</font><br />\n";        
+      }
+      if ($skipping) echo "<font color='green'>Skipping section $line</font><br />\n";
+    }
+    else if (preg_match('/^#IfNotListImmunizationManufacturer/', $line)){      
+      if ( listExists("Immunization_Manufacturer") ) {
+        $skipping = true;
+      }
+      else {
+        // Create Immunization Manufacturer list
+        CreateImmunizationManufacturerList(); 
+        $skipping = false;
+        echo "<font color='green'>Built Immunization Manufacturer List</font><br />\n";        
+      }
+      if ($skipping) echo "<font color='green'>Skipping section $line</font><br />\n";
+    }
+    // convert all *text types to use default null setting
+    else if (preg_match('/^#IfTextNullFixNeeded/', $line)) {
+      $items_to_convert = sqlStatement("SELECT `table_name`, `column_name`, `data_type`, `column_comment` " .
+                                       "FROM `information_schema`.`columns` " .
+                                       "WHERE (`data_type`='tinytext' OR `data_type`='text' OR `data_type`='mediumtext' OR `data_type`='longtext' ) " .
+                                       "AND is_nullable='NO' AND table_schema=database()");
+      if(sqlNumRows($items_to_convert) == 0) {
+        $skipping = true;
+      } else {
+        $skipping = false;
+        echo '<font color="black">Starting conversion of *TEXT types to use default NULL.</font><br />',"\n";
+        while($item = sqlFetchArray($items_to_convert)) {
+          if (!empty($item['column_comment'])) {
+            $res = sqlStatement("ALTER TABLE `" . add_escape_custom($item['table_name']) . "` MODIFY `" . add_escape_custom($item['column_name']) . "` " . add_escape_custom($item['data_type'])  . " COMMENT '" . add_escape_custom($item['column_comment']) . "'");
+          }
+          else {
+            $res = sqlStatement("ALTER TABLE `" . add_escape_custom($item['table_name']) . "` MODIFY `" . add_escape_custom($item['column_name']) . "` " . add_escape_custom($item['data_type']));
+          }
+          // If above query didn't work, then error will be outputted via the sqlStatement function.
+          echo "<font color='green'>" . text($item['table_name']) . "." . text($item['column_name'])  . " sql column was successfully converted to " . text($item['data_type']) . " with default NULL setting.</font><br />\n";
+        }
+      }
+      if($skipping) echo "<font color='green'>Skipping section $line</font><br />\n";
+    }
+    // perform special actions if table has specific engine
+    else if (preg_match('/^#IfTableEngine\s+(\S+)\s+(MyISAM|InnoDB)/', $line, $matches)) {
+      $skipping = !tableHasEngine( $matches[1], $matches[2] );
+      if ($skipping) echo "<font color='green'>Skipping section $line</font><br />\n";
+    }
+    // find MyISAM tables and attempt to convert them
+    else if (preg_match('/^#IfInnoDBMigrationNeeded/', $line)) {
+      $tables_list = getTablesList( array('engine'=>'MyISAM'));
+      if( count($tables_list)==0 ) {
+        $skipping = true;
+      } else {
+        $skipping = false;
+        echo '<font color="black">Starting migration to InnoDB, please wait.</font><br />',"\n";
+        foreach( $tables_list as $k=>$t ) {
+          $res = MigrateTableEngine( $t, 'InnoDB' );
+          if( $res === TRUE) {
+            printf( '<font color="green">Table %s migrated to InnoDB.</font><br />', $t );
+          } else {
+            printf( '<font color="red">Error migrating table %s to InnoDB</font><br />', $t );
+            error_log( sprintf( 'Error migrating table %s to InnoDB', $t )); 
+          }
+        } 
+      }
+      if($skipping) echo "<font color='green'>Skipping section $line</font><br />\n";
+    }
     else if (preg_match('/^#EndIf/', $line)) {
       $skipping = false;
     }
@@ -424,7 +665,7 @@ function upgradeFromSqlFile($filename) {
       echo "$query<br />\n";
       if (!sqlStatement($query)) {
         echo "<font color='red'>The above statement failed: " .
-          mysql_error() . "<br />Upgrading will continue.<br /></font>\n";
+          getSqlLastError() . "<br />Upgrading will continue.<br /></font>\n";
       }
       $query = '';
     }

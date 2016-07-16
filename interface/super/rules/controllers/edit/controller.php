@@ -23,9 +23,13 @@ class Controller_edit extends BaseController {
         $ruleId = _post('id');
         $types = _post('fld_ruleTypes');
         $title = _post('fld_title');
+        $developer = _post('fld_developer');
+        $funding = _post('fld_funding_source');
+        $release = _post('fld_release');
+        $web_ref = _post('fld_web_reference');
         if ( is_null($rule_id)) {
             // its a new rule submit
-            $ruleId = $this->getRuleManager()->updateSummary( $ruleId, $types, $title );
+            $ruleId = $this->getRuleManager()->updateSummary( $ruleId, $types, $title, $developer, $funding, $release, $web_ref );
 
             // redirect to the intervals page
             $this->redirect("index.php?action=edit!intervals&id=$ruleId");

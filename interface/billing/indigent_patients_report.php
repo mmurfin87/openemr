@@ -1,5 +1,5 @@
 <?php
-// Copyright (C) 2005-2010 Rod Roark <rod@sunsetsystems.com>
+// Copyright (C) 2005-2015 Rod Roark <rod@sunsetsystems.com>
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -12,7 +12,6 @@
 
 require_once("../globals.php");
 require_once("$srcdir/patient.inc");
-require_once("$srcdir/sql-ledger.inc");
 require_once("$srcdir/formatting.inc.php");
 
 $alertmsg = '';
@@ -25,9 +24,6 @@ function bucks($amount) {
 $form_start_date = fixDate($_POST['form_start_date'], date("Y-01-01"));
 $form_end_date   = fixDate($_POST['form_end_date'], date("Y-m-d"));
 
-$INTEGRATED_AR = $GLOBALS['oer_config']['ws_accounting']['enabled'] === 2;
-
-if (!$INTEGRATED_AR) SLConnect();
 ?>
 <html>
 <head>
@@ -62,6 +58,11 @@ if (!$INTEGRATED_AR) SLConnect();
 <script type="text/javascript" src="../../library/js/jquery.1.3.2.js"></script>
 
 <script language="JavaScript">
+
+ $(document).ready(function() {
+  var win = top.printLogSetup ? top : opener.top;
+  win.printLogSetup(document.getElementById('printbutton'));
+ });
 
 </script>
 
@@ -122,7 +123,7 @@ if (!$INTEGRATED_AR) SLConnect();
 					</a>
 
 					<?php if ($_POST['form_refresh']) { ?>
-					<a href='#' class='css_button' onclick='window.print()'>
+					<a href='#' class='css_button' id='printbutton'>
 						<span>
 							<?php xl('Print','e'); ?>
 						</span>
@@ -168,7 +169,7 @@ if (!$INTEGRATED_AR) SLConnect();
  </thead>
 
 <?php
-  if ($_POST['form_search']) {
+  if ($_POST['form_refresh']) {
 
     $where = "";
 
@@ -194,8 +195,6 @@ if (!$INTEGRATED_AR) SLConnect();
       $patient_id = $row['pid'];
       $encounter_id = $row['encounter'];
       $invnumber = $row['pid'] . "." . $row['encounter'];
-
-      if ($INTEGRATED_AR) {
         $inv_duedate = '';
         $arow = sqlQuery("SELECT SUM(fee) AS amount FROM drug_sales WHERE " .
           "pid = '$patient_id' AND encounter = '$encounter_id'");
@@ -213,17 +212,6 @@ if (!$INTEGRATED_AR) SLConnect();
           "pid = '$patient_id' AND encounter = '$encounter_id'");
         $inv_paid   += $arow['pay'];
         $inv_amount -= $arow['adj'];
-      }
-      else {
-        $ares = SLQuery("SELECT duedate, amount, paid FROM ar WHERE " .
-          "ar.invnumber = '$invnumber'");
-        if ($sl_err) die($sl_err);
-        if (SLRowCount($ares) == 0) continue;
-        $arow = SLGetRow($ares, 0);
-        $inv_amount  = $arow['amount'];
-        $inv_paid    = $arow['paid'];
-        $inv_duedate = $arow['duedate'];
-      }
       $total_amount += bucks($inv_amount);
       $total_paid   += bucks($inv_paid);
 
@@ -286,7 +274,6 @@ if (!$INTEGRATED_AR) SLConnect();
  </tr>
 <?php
   }
-  if (!$INTEGRATED_AR) SLClose();
 ?>
 
 </table>

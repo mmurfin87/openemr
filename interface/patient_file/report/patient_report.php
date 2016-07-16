@@ -112,7 +112,7 @@ function show_date_fun(){
   </table>
 </div>
 <br>
-<input type="button" class="generateCCR" value="<?php xl('View/Print','e'); ?>" />
+<input type="button" class="generateCCR" value="<?php echo xla('Generate Report'); ?>" />
 <!-- <input type="button" class="generateCCR_download_h" value="<?php echo xl('Download')." (Hybrid)"; ?>" /> -->
 <input type="button" class="generateCCR_download_p" value="<?php echo xl('Download'); ?>" />
 <!-- <input type="button" class="generateCCR_raw" value="<?php xl('Raw Report','e'); ?>" /> -->
@@ -142,7 +142,7 @@ function show_date_fun(){
 <span class='text'>(<?php xl('Pop ups need to be enabled to see these reports','e'); ?>)</span>
 <br/>
 <br/>
-<input type="button" class="viewCCD" value="<?php xl('View/Print','e'); ?>" />
+<input type="button" class="viewCCD" value="<?php echo xla('Generate Report'); ?>" />
 <input type="button" class="viewCCD_download" value="<?php echo htmlspecialchars( xl('Download', ENT_QUOTES)); ?>" />
 <!-- <input type="button" class="viewCCD_raw" value="<?php xl('Raw Report','e'); ?>" /> -->
 <?php if ($GLOBALS['phimail_enable']==true && $GLOBALS['phimail_ccd_enable']==true) { ?>
@@ -354,7 +354,8 @@ while($result = sqlFetchArray($res)) {
         // trim to a reasonable length for display purposes --cfapress
         $maxReasonLength = 20;
         if (strlen($result["reason"]) > $maxReasonLength) {
-            $result['reason'] = substr($result['reason'], 0, $maxReasonLength) . " ... ";
+            // The default encoding for this mb_substr() call is set near top of globals.php
+            $result['reason'] = mb_substr($result['reason'], 0, $maxReasonLength) . " ... ";
         }
 
         echo $result{"reason"}. 

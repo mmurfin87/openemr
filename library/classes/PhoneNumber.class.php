@@ -32,7 +32,7 @@ class PhoneNumber extends ORDataObject{
 	/**
 	 * Constructor sets all Prescription attributes to their default value
 	 */
-	function PhoneNumber($id = "",$foreign_id = "")	{
+	function __construct($id = "",$foreign_id = "")	{
 		$this->id = $id;
 		$this->foreign_id = $foreign_id;
 		$this->country_code = "+1";
@@ -51,7 +51,7 @@ class PhoneNumber extends ORDataObject{
 			 $foreign_id= "like '%'";
 		}
 		else {
-			$foreign_id= " = '" . mysql_real_escape_string(strval($foreign_id)) . "'";
+			$foreign_id= " = '" . add_escape_custom(strval($foreign_id)) . "'";
 		}
 		$phone_numbers = array();
 		$p = new PhoneNumber();
@@ -59,7 +59,7 @@ class PhoneNumber extends ORDataObject{
 		//echo $sql . "<bR />";
 		$results = sqlQ($sql);
 		//echo "sql: $sql";
-		while ($row = mysql_fetch_array($results) ) {
+		while ($row = sqlFetchArray($results) ) {
 			$phone_numbers[] = new PhoneNumber($row['id']);
 		}
 		return $phone_numbers;
@@ -136,7 +136,7 @@ class PhoneNumber extends ORDataObject{
 			$this->number = substr ($num,6,4);
 		}
 		elseif (strlen($num) == 12) {
-			$nums = split("-",$num);
+			$nums = explode("-",$num);
 			if (count($nums) == 3) {
 				$this->area_code = $nums[0];
 				$this->prefix = $nums[1];

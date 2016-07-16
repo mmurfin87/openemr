@@ -23,8 +23,8 @@ class C_Document extends Controller {
 	var $_config;
         var $manual_set_owner=false; // allows manual setting of a document owner/service
 
-	function C_Document($template_mod = "general") {
-		parent::Controller();
+	function __construct($template_mod = "general") {
+		parent::__construct();
 		$this->documents = array();
 		$this->template_mod = $template_mod;
 		$this->assign("FORM_ACTION", $GLOBALS['webroot']."/controller.php?" . $_SERVER['QUERY_STRING']);
@@ -39,6 +39,7 @@ class C_Document extends Controller {
 		$t = new CategoryTree(1);
 		//print_r($t->tree);
 		$this->tree = $t;
+		$this->Document = new Document();
 	}
 	
 	function upload_action($patient_id,$category_id) {
@@ -52,7 +53,9 @@ class C_Document extends Controller {
     // Cloned from similar stuff in manage_document_templates.php.
     $templatedir = $GLOBALS['OE_SITE_DIR'] . '/documents/doctemplates';
     $templates_options = "<option value=''>-- " . xl('Select Template') . " --</option>";
-    $dh = opendir($templatedir);
+    if (file_exists($templatedir)) {
+      $dh = opendir($templatedir);
+    }
     if ($dh) {
       $templateslist = array();
       while (false !== ($sfname = readdir($dh))) {
@@ -145,7 +148,7 @@ class C_Document extends Controller {
                       $_FILES['file']['type'][$key], $filetext,
                       empty($_GET['higher_level_path']) ? '' : $_GET['higher_level_path'],
                       empty($_POST['path_depth']) ? 1 : $_POST['path_depth'],
-                      $non_HTTP_owner);
+                      $non_HTTP_owner, $_FILES['file']['tmp_name'][$key]);
                     if ($rc) {
                       $error .= $rc . "\n";
                     }
@@ -348,7 +351,7 @@ class C_Document extends Controller {
 		//pass an empty array because we don't want the documents for each category showing up in this list box
  		$rnode = $this->_array_recurse($this->tree->tree,array());
 		$menu->addItem($rnode);
-		$treeMenu_listbox  = &new HTML_TreeMenu_Listbox($menu, array("promoText" => xl('Move Document to Category:')));
+		$treeMenu_listbox  = new HTML_TreeMenu_Listbox($menu, array("promoText" => xl('Move Document to Category:')));
 		
 		$this->assign("tree_html_listbox",$treeMenu_listbox->toHTML());
 		
@@ -383,9 +386,13 @@ class C_Document extends Controller {
         return $plaintext;
     }
 	
-	
-	function retrieve_action($patient_id="",$document_id,$as_file=true,$original_file=true) {
-	    
+	/**
+	 * Retrieve file from hard disk / CouchDB.
+	 * In case that file isn't download this function will return thumbnail image (if exist).
+	 * @param (boolean) $show_original - enable to show the original image (not thumbnail) in inline status.
+	 * */
+	function retrieve_action($patient_id="",$document_id,$as_file=true,$original_file=true,$disable_exit=false,$show_original=false) {
+
 	    $encrypted = $_POST['encrypted'];
 		$passphrase = $_POST['passphrase'];
 		$doEncryption = false;
@@ -396,21 +403,35 @@ class C_Document extends Controller {
 		}
 		
 	        //controller function ruins booleans, so need to manually re-convert to booleans
-	        if ($as_file == "true") {
+		if ($as_file == "true") {
 		        $as_file=true;
 		}
-	        else if ($as_file == "false") {
+		else if ($as_file == "false") {
 		        $as_file=false;    
 		}
-                if ($original_file == "true") {
+		if ($original_file == "true") {
 		        $original_file=true;
 		}
-	        else if ($original_file == "false") {
+		else if ($original_file == "false") {
 		        $original_file=false;   
 		}
-	    
+		if ($disable_exit == "true") {
+				$disable_exit=true;
+		}
+		else if ($disable_exit == "false") {
+				$disable_exit=false;
+		}
+		if ($show_original == "true") {
+			$show_original=true;
+		}
+		else if ($show_original == "false") {
+			$show_original=false;
+		}
+
 		$d = new Document($document_id);
 		$url =  $d->get_url();
+		$th_url = $d->get_thumb_url();
+
 		$storagemethod = $d->get_storagemethod();
 		$couch_docid = $d->get_couch_docid();
 		$couch_revid = $d->get_couch_revid();
@@ -419,7 +440,12 @@ class C_Document extends Controller {
 			$couch = new CouchDB();
 			$data = array($GLOBALS['couchdb_dbase'],$couch_docid);
 			$resp = $couch->retrieve_doc($data);
-			$content = $resp->data;
+			//Take thumbnail file when is not null and file is presented online
+			if (!$as_file && !is_null($th_url) && !$show_original) {
+				$content = $resp->th_data;
+			} else {
+				$content = $resp->data;
+			}
 			if($content=='' && $GLOBALS['couchdb_log']==1){				
 				$log_content = date('Y-m-d H:i:s')." ==> Retrieving document\r\n";
 				$log_content = date('Y-m-d H:i:s')." ==> URL: ".$url."\r\n";
@@ -430,6 +456,9 @@ class C_Document extends Controller {
 				$this->document_upload_download_log($d->get_foreign_id(),$log_content);
 				die(xl("File retrieval from CouchDB failed"));
 			}
+                        if($disable_exit == true) {
+                            return base64_decode($content);
+                        }
 			header('Content-Description: File Transfer');
 			header('Content-Transfer-Encoding: binary');
 			header('Expires: 0');
@@ -466,6 +495,12 @@ class C_Document extends Controller {
 			unlink($tmpcouchpath);
 			exit;//exits only if file download from CouchDB is successfull. 
 		}
+
+		//Take thumbnail file when is not null and file is presented online
+		if(!$as_file && !is_null($th_url) && !$show_original) {
+			$url = $th_url;
+		}
+
 		//strip url of protocol handler
 		$url = preg_replace("|^(.*)://|","",$url);
 		
@@ -507,14 +542,19 @@ class C_Document extends Controller {
 		else {
 		        if ($original_file) {
 			    //normal case when serving the file referenced in database
+                            if($disable_exit == true) {
+                                $f = fopen($url,"r");
+                                $filetext = fread( $f, filesize($url) );
+                                return $filetext;
+                            }
                 header('Content-Description: File Transfer');
                 header('Content-Transfer-Encoding: binary');
                 header('Expires: 0');
                 header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
                 header('Pragma: public');
-			    $f = fopen($url,"r");
+                            $f = fopen($url,"r");
 			    if ( $doEncryption ) {
-			  		$filetext = fread( $f, filesize($url) );
+                                $filetext = fread( $f, filesize($url) );
 			        $ciphertext = $this->encrypt( $filetext, $passphrase );
 			        $tmpfilepath = $GLOBALS['temporary_files_dir'];
 			        $tmpfilename = "/encrypted_".$d->get_url_file();
@@ -545,6 +585,9 @@ class C_Document extends Controller {
 				else{
 				$url = $GLOBALS['OE_SITE_DIR'] . '/documents/' . $from_pathname . '/' . $convertedFile;
                 }
+                                if($disable_exit == true) {
+                                    return ;
+                                }
 				header("Pragma: public");
 			    header("Expires: 0");
 			    header("Cache-Control: must-revalidate, post-check=0, pre-check=0");
@@ -580,7 +623,7 @@ class C_Document extends Controller {
 				if (is_file($file) && strpos(basename($file),".") !== 0) {
 					$file_info['filename'] = basename($file);
 					$file_info['mtime'] = date("m/d/Y H:i:s",filemtime($file));
-					$d = Document::document_factory_url("file://" . $file);
+					$d = $this->Document->document_factory_url("file://" . $file);
 					preg_match("/^([0-9]+)_/",basename($file),$patient_match);
 					$file_info['patient_id'] = $patient_match[1];
 					$file_info['document_id'] = $d->get_id();
@@ -605,7 +648,7 @@ class C_Document extends Controller {
 		//pass an empty array because we don't want the documents for each category showing up in this list box
  		$rnode = $this->_array_recurse($this->tree->tree,array());
 		$menu->addItem($rnode);
-		$treeMenu_listbox  = &new HTML_TreeMenu_Listbox($menu, array());
+		$treeMenu_listbox  = new HTML_TreeMenu_Listbox($menu, array());
 		
 		$this->assign("tree_html_listbox",$treeMenu_listbox->toHTML());
 		
@@ -939,8 +982,8 @@ class C_Document extends Controller {
 		$menu  = new HTML_TreeMenu();
  		$rnode = $this->_array_recurse($this->tree->tree,$categories_list);
 		$menu->addItem($rnode);
-		$treeMenu = &new HTML_TreeMenu_DHTML($menu, array('images' => 'images', 'defaultClass' => 'treeMenuDefault'));
-		$treeMenu_listbox  = &new HTML_TreeMenu_Listbox($menu, array('linkTarget' => '_self'));
+		$treeMenu = new HTML_TreeMenu_DHTML($menu, array('images' => 'images', 'defaultClass' => 'treeMenuDefault'));
+		$treeMenu_listbox  = new HTML_TreeMenu_Listbox($menu, array('linkTarget' => '_self'));
 		
 		$this->assign("tree_html",$treeMenu->toHTML());
 		
@@ -960,7 +1003,7 @@ class C_Document extends Controller {
         $path = dirname($fname);
         $file = basename($fname);
 
-        $fparts = split("\.",$file);
+        $fparts = explode("\.",$file);
 
         if (count($fparts) > 1) {
             if (is_numeric($fparts[count($fparts) -2]) && (count($fparts) > 2)) {

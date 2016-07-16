@@ -123,7 +123,7 @@ function generate_select_list($tag_name, $list_id, $currvalue, $title, $empty_na
 	$selectEmptyName = xlt($empty_name);
 	if ($empty_name)
 		$s .= "<option value=''>" . $selectEmptyName . "</option>";
-	$lres = sqlStatement("SELECT * FROM list_options WHERE list_id = ? ORDER BY seq, title", array($list_id));
+	$lres = sqlStatement("SELECT * FROM list_options WHERE list_id = ? AND activity=1 ORDER BY seq, title", array($list_id));
 	$got_selected = FALSE;
 	
 	while ( $lrow = sqlFetchArray ( $lres ) ) {
@@ -140,6 +140,21 @@ function generate_select_list($tag_name, $list_id, $currvalue, $title, $empty_na
 		$optionLabel = text(xl_list_label($lrow ['title']));
 		$s .= ">$optionLabel</option>\n";
 	}
+
+	/*
+	  To show the inactive item in the list if the value is saved to database
+	  */
+	  if (!$got_selected && strlen($currvalue) > 0)
+	  {
+	    $lres_inactive = sqlStatement("SELECT * FROM list_options " .
+	    "WHERE list_id = ? AND activity = 0 AND option_id = ? ORDER BY seq, title", array($list_id, $currvalue));
+	    $lrow_inactive = sqlFetchArray($lres_inactive);
+	    if($lrow_inactive['option_id']) {
+	      $optionValue = htmlspecialchars( $lrow_inactive['option_id'], ENT_QUOTES);
+	      $s .= "<option value='$optionValue' selected>" . htmlspecialchars( xl_list_label($lrow_inactive['title']), ENT_NOQUOTES) . "</option>\n";
+	      $got_selected = TRUE;
+	    }
+	  }
 
 	if (!$got_selected && strlen ( $currvalue ) > 0 && !$multiple) {
 		$list_id = $backup_list;
@@ -200,7 +215,7 @@ function generate_select_list($tag_name, $list_id, $currvalue, $title, $empty_na
 // $currvalue is the current value, if any, of the associated item.
 //
 function generate_form_field($frow, $currvalue) {
-  global $rootdir, $date_init, $ISSUE_TYPES, $code_types;
+  global $rootdir, $date_init, $ISSUE_TYPES, $code_types,$condition_str;
 
   $currescaped = htmlspecialchars($currvalue, ENT_QUOTES);
 
@@ -208,6 +223,7 @@ function generate_form_field($frow, $currvalue) {
   $field_id    = $frow['field_id'];
   $list_id     = $frow['list_id'];
   $backup_list = $frow['list_backup_id'];
+  $condition_str = get_conditions_str($condition_str,$frow);
   
   // escaped variables to use in html
   $field_id_esc= htmlspecialchars( $field_id, ENT_QUOTES);
@@ -246,7 +262,8 @@ function generate_form_field($frow, $currvalue) {
 
   $disabled = strpos($frow['edit_options'], '0') === FALSE ? '' : 'disabled';
 
-  $lbfchange = strpos($frow['form_id'], 'LBF') === 0 ? "checkSkipConditions();" : "";
+  $lbfchange = (strpos($frow['form_id'], 'LBF') === 0 || strpos($frow['form_id'], 'LBT') === 0) ?
+    "checkSkipConditions();" : "";
   $lbfonchange = $lbfchange ? "onchange='$lbfchange'" : "";
 
   // generic single-selection list or Race and Ethnicity.
@@ -1037,6 +1054,28 @@ function generate_form_field($frow, $currvalue) {
       $description, $showEmpty ? $empty_title : '', '', $onchange, '', null, true, $backup_list);
   	
   }
+
+  // Canvas and related elements for browser-side image drawing.
+  // Note you must invoke lbf_canvas_head() (below) to use this field type in a form.
+  else if ($data_type == 40) {
+    // Unlike other field types, width and height are in pixels.
+    $canWidth  = intval($frow['fld_length']);
+    $canHeight = intval($frow['fld_rows']);
+    if (empty($currvalue)) {
+      if (preg_match('/\\bimage=([a-zA-Z0-9._-]*)/', $frow['description'], $matches)) {
+        // If defined this is the filename of the default starting image.
+        $currvalue = $GLOBALS['web_root'] . '/sites/' . $_SESSION['site_id'] . '/images/' . $matches[1];
+      }
+    }
+    echo "<div id='form_$field_id_esc'></div>";
+    // Hidden form field exists to send updated data to the server at submit time.
+    echo "<input type='hidden' name='form_$field_id_esc' value='' />";
+    // Hidden image exists to support initialization of the canvas.
+    echo "<img src='" . attr($currvalue) . "' id='form_{$field_id_esc}_img' style='display:none'>";
+    // $date_init is a misnomer but it's the place for browser-side setup logic.
+    $date_init .= " lbfCanvasSetup('form_$field_id_esc', $canWidth, $canHeight);\n";
+  }
+
 }
 
 function generate_print_field($frow, $currvalue) {
@@ -1134,7 +1173,8 @@ function generate_print_field($frow, $currvalue) {
 
   // date
   else if ($data_type == 4) {
-    $agestr = optionalAge($frow, $currvalue);
+    $asof = ''; //not used here, but set to prevent a php warning when call optionalAge
+    $agestr = optionalAge($frow, $currvalue,$asof);
     if ($agestr) {
       echo "<table cellpadding='0' cellspacing='0'><tr><td class='text'>";
     }
@@ -1621,6 +1661,11 @@ function generate_print_field($frow, $currvalue) {
   	}
   }
 
+  // Image from canvas drawing
+  else if ($data_type == 40) {
+    echo "<img src='" . attr($currvalue) . "'>";
+  }
+
 }
 
 function generate_display_field($frow, $currvalue) {
@@ -1661,8 +1706,9 @@ function generate_display_field($frow, $currvalue) {
 
   // date
   else if ($data_type == 4) {
+    $asof = ''; //not used here, but set to prevent a php warning when call optionalAge
     $s = '';
-    $agestr = optionalAge($frow, $currvalue);
+    $agestr = optionalAge($frow, $currvalue, $asof);
     if ($agestr) {
       $s .= "<table cellpadding='0' cellspacing='0'><tr><td class='text'>";
     }
@@ -1712,10 +1758,15 @@ function generate_display_field($frow, $currvalue) {
 
   // address book
   else if ($data_type == 14) {
-    $urow = sqlQuery("SELECT fname, lname, specialty FROM users " .
+    $urow = sqlQuery("SELECT fname, lname, specialty, organization FROM users " .
       "WHERE id = ?", array($currvalue));
-    $uname = $urow['lname'];
-    if ($urow['fname']) $uname .= ", " . $urow['fname'];
+    //ViSolve: To display the Organization Name if it exist. Else it will display the user name.
+    if($urow['organization'] !=""){
+    	$uname = $urow['organization'];
+    }else{
+    	$uname = $urow['lname'];
+    	if ($urow['fname']) $uname .= ", " . $urow['fname'];    	
+    }
     $s = htmlspecialchars($uname,ENT_NOQUOTES);
   }
 
@@ -1953,26 +2004,27 @@ function generate_display_field($frow, $currvalue) {
   //  Supports backup lists
   else if ($data_type == 36) {
     $values_array = explode("|", $currvalue);
-    
     $i = 0;
     foreach($values_array as $value) {
       $lrow = sqlQuery("SELECT title FROM list_options " .
-          "WHERE list_id = ? AND option_id = ?", array($list_id,$value) );
-      
+        "WHERE list_id = ? AND option_id = ?", array($list_id,$value) );
       if ($lrow == 0 && !empty($backup_list)) {
-      	//use back up list
-      	$lrow = sqlQuery("SELECT title FROM list_options " .
-      			"WHERE list_id = ? AND option_id = ?", array($backup_list,$value) );
+        //use back up list
+        $lrow = sqlQuery("SELECT title FROM list_options " .
+          "WHERE list_id = ? AND option_id = ?", array($backup_list,$value) );
       }
-      
       if ($i > 0) {
         $s = $s . ", " . htmlspecialchars(xl_list_label($lrow['title']),ENT_NOQUOTES);
-	  } else {
+	    } else {
         $s = htmlspecialchars(xl_list_label($lrow['title']),ENT_NOQUOTES);
       }
-
       $i++;
     }
+  }
+
+  // Image from canvas drawing
+  else if ($data_type == 40) {
+    $s .= "<img src='" . attr($currvalue) . "'>";
   }
 
   return $s;
@@ -2016,7 +2068,8 @@ function generate_plaintext_field($frow, $currvalue) {
   else if ($data_type == 4) {
     $s = oeFormatShortDate($currvalue);
     // Optional display of age or gestational age.
-    $tmp = optionalAge($frow, $currvalue);
+    $asof=''; //not used here, but set to prevent a php warning when call optionalAge
+    $tmp = optionalAge($frow, $currvalue,$asof);
     if ($tmp) $s .= ' ' . $tmp;
   }
 
@@ -2281,11 +2334,6 @@ function display_layout_rows($formtype, $result1, $result2='') {
     $currvalue  = '';
 
     if ($formtype == 'DEM') {
-      if ($GLOBALS['athletic_team']) {
-        // Skip fitness level and return-to-play date because those appear
-        // in a special display/update form on this page.
-        if ($field_id === 'fitness' || $field_id === 'userdate1') continue;
-      }
       if (strpos($field_id, 'em_') === 0) {
         // Skip employer related fields, if it's disabled.
         if ($GLOBALS['omit_employers']) continue;
@@ -2390,7 +2438,7 @@ function display_layout_tabs($formtype, $result1, $result2='') {
 }
 
 function display_layout_tabs_data($formtype, $result1, $result2='') {
-  global $item_count, $cell_count, $last_group, $CPR;
+  global $item_count, $cell_count, $last_group, $CPR,$condition_str;
 
   $fres = sqlStatement("SELECT distinct group_name FROM layout_options " .
     "WHERE form_id = ? AND uor > 0 " .
@@ -2419,19 +2467,16 @@ function display_layout_tabs_data($formtype, $result1, $result2='') {
 			<?php
 				while ($group_fields = sqlFetchArray($group_fields_query)) {
 
-					$titlecols  = $group_fields['titlecols'];
-					$datacols   = $group_fields['datacols'];
-					$data_type  = $group_fields['data_type'];
-					$field_id   = $group_fields['field_id'];
-					$list_id    = $group_fields['list_id'];
-					$currvalue  = '';
+					$titlecols     = $group_fields['titlecols'];
+					$datacols      = $group_fields['datacols'];
+					$data_type     = $group_fields['data_type'];
+					$field_id      = $group_fields['field_id'];
+					$list_id       = $group_fields['list_id'];
+					$currvalue     = '';
+                    $condition_str = get_conditions_str($condition_str,$group_fields);
+
 
 					if ($formtype == 'DEM') {
-					  if ($GLOBALS['athletic_team']) {
-						// Skip fitness level and return-to-play date because those appear
-						// in a special display/update form on this page.
-						if ($field_id === 'fitness' || $field_id === 'userdate1') continue;
-					  }
 					  if (strpos($field_id, 'em_') === 0) {
 					// Skip employer related fields, if it's disabled.
 						if ($GLOBALS['omit_employers']) continue;
@@ -2468,22 +2513,30 @@ function display_layout_tabs_data($formtype, $result1, $result2='') {
 					if ($titlecols > 0) {
 					  disp_end_cell();
 					  $titlecols_esc = htmlspecialchars( $titlecols, ENT_QUOTES);
-					  echo "<td class='label' colspan='$titlecols_esc' ";
+					  $field_id_label = 'label_'.$group_fields['field_id'];
+					  echo "<td class='label' colspan='$titlecols_esc' id='$field_id_label'";
 					  echo ">";
 					  $cell_count += $titlecols;
 					}
 					++$item_count;
 
+					$field_id_label = 'label_'.$group_fields['field_id'];
+					echo "<span id='".$field_id_label."'>";
 					// Added 5-09 by BM - Translate label if applicable
 					if ($group_fields['title']) echo htmlspecialchars(xl_layout_label($group_fields['title']).":",ENT_NOQUOTES); else echo "&nbsp;";
+					echo "</span>";
 
 					// Handle starting of a new data cell.
 					if ($datacols > 0) {
 					  disp_end_cell();
 					  $datacols_esc = htmlspecialchars( $datacols, ENT_QUOTES);
-					  echo "<td class='text data' colspan='$datacols_esc'";
+					  $field_id = 'text_'.$group_fields['field_id'];
+					  echo "<td class='text data' colspan='$datacols_esc' id='$field_id'  data-value='$currvalue'";
 					  echo ">";
 					  $cell_count += $datacols;
+					} else {
+					  $field_id = 'text_'.$group_fields['field_id'];
+					  echo "<span id='".$field_id."' style='display:none'>$currvalue</span>";
 					}
 
 					++$item_count;
@@ -2504,8 +2557,24 @@ function display_layout_tabs_data($formtype, $result1, $result2='') {
 
 }
 
+function get_conditions_str($condition_str,$frow){
+    $conditions = empty($frow['conditions']) ? array() : unserialize($frow['conditions']);
+    foreach ($conditions as $condition) {
+        if (empty($condition['id'])) continue;
+        $andor = empty($condition['andor']) ? '' : $condition['andor'];
+        if ($condition_str) $condition_str .= ",\n";
+            $condition_str .= "{" .
+            "target:'"   . addslashes($frow['field_id'])      . "', " .
+            "id:'"       . addslashes($condition['id'])       . "', " .
+            "itemid:'"   . addslashes($condition['itemid'])   . "', " .
+            "operator:'" . addslashes($condition['operator']) . "', " .
+            "value:'"    . addslashes($condition['value'])    . "', " .
+            "andor:'"    . addslashes($andor)                 . "'}";
+    }
+    return $condition_str;
+}
 function display_layout_tabs_data_editable($formtype, $result1, $result2='') {
-  global $item_count, $cell_count, $last_group, $CPR;
+  global $item_count, $cell_count, $last_group, $CPR,$condition_str;
 
   $fres = sqlStatement("SELECT distinct group_name FROM layout_options " .
     "WHERE form_id = ? AND uor > 0 " .
@@ -2530,7 +2599,7 @@ function display_layout_tabs_data_editable($formtype, $result1, $result2='') {
 		"ORDER BY seq", array($formtype,$this_group) );
 	?>
 
-		<div class="tab <?php echo $first ? 'current' : '' ?>" id="tab_<?php echo $group_name_esc?>" >
+		<div class="tab <?php echo $first ? 'current' : '' ?>" id="tab_<?php echo str_replace(' ', '_',$group_name_esc)?>" >
 			<table border='0' cellpadding='0'>
 
 			<?php
@@ -2542,14 +2611,10 @@ function display_layout_tabs_data_editable($formtype, $result1, $result2='') {
 					$field_id   = $group_fields['field_id'];
 					$list_id    = $group_fields['list_id'];
 					$backup_list = $group_fields['list_backup_id'];
+                    $condition_str = get_conditions_str($condition_str,$group_fields);
 					$currvalue  = '';
 
 					if ($formtype == 'DEM') {
-					  if ($GLOBALS['athletic_team']) {
-						// Skip fitness level and return-to-play date because those appear
-						// in a special display/update form on this page.
-						if ($field_id === 'fitness' || $field_id === 'userdate1') continue;
-					  }
 					  if (strpos($field_id, 'em_') === 0) {
 					// Skip employer related fields, if it's disabled.
 						if ($GLOBALS['omit_employers']) continue;
@@ -2586,7 +2651,8 @@ function display_layout_tabs_data_editable($formtype, $result1, $result2='') {
 					if ($titlecols > 0) {
 					  disp_end_cell();
 					  $titlecols_esc = htmlspecialchars( $titlecols, ENT_QUOTES);
-					  echo "<td class='label' colspan='$titlecols_esc' ";
+                      $field_id_label = 'label_'.$group_fields['field_id'];
+					  echo "<td class='label' colspan='$titlecols_esc' id='$field_id_label' ";
 					  echo ">";
 					  $cell_count += $titlecols;
 					}
@@ -2599,7 +2665,8 @@ function display_layout_tabs_data_editable($formtype, $result1, $result2='') {
 					if ($datacols > 0) {
 					  disp_end_cell();
 					  $datacols_esc = htmlspecialchars( $datacols, ENT_QUOTES);
-					  echo "<td class='text data' colspan='$datacols_esc'";
+                      $field_id = 'text_'.$group_fields['field_id'];
+					  echo "<td class='text data' colspan='$datacols_esc' id='$field_id'";
 					  echo ">";
 					  $cell_count += $datacols;
 					}
@@ -2730,12 +2797,23 @@ function generate_layout_validation($form_id) {
     "ORDER BY group_name, seq", array($form_id) );
 
   while ($frow = sqlFetchArray($fres)) {
-    if ($frow['uor'] < 2) continue;
     $data_type = $frow['data_type'];
     $field_id  = $frow['field_id'];
     $fldtitle  = $frow['title'];
     if (!$fldtitle) $fldtitle  = $frow['description'];
-    $fldname   = htmlspecialchars( "form_$field_id", ENT_QUOTES);
+    $fldname   = htmlspecialchars("form_$field_id", ENT_QUOTES);
+
+    if ($data_type == 40) {
+      $fldid = addslashes("form_$field_id");
+      // Move canvas image data to its hidden form field so the server will get it.
+      echo
+      " var canfld = f['$fldid'];\n" .
+      " if (canfld) canfld.value = lbfCanvasGetData('$fldid');\n";
+      continue;
+    }
+
+    if ($frow['uor'] < 2) continue;
+
     switch($data_type) {
       case  1:
       case 11:
@@ -2744,11 +2822,10 @@ function generate_layout_validation($form_id) {
       case 14:
       case 26:
       case 33:
-      case 36:
         echo
         " if (f.$fldname.selectedIndex <= 0) {\n" .
         "  if (f.$fldname.focus) f.$fldname.focus();\n" .
-        "  		errMsgs[errMsgs.length] = '" . htmlspecialchars( (xl_layout_label($fldtitle)), ENT_QUOTES) . "'; \n" .
+        "  		errMsgs[errMsgs.length] = '" . addslashes(xl_layout_label($fldtitle)) . "'; \n" .
         " }\n";
         break;
       case 27: // radio buttons
@@ -2756,7 +2833,7 @@ function generate_layout_validation($form_id) {
         " var i = 0;\n" .
         " for (; i < f.$fldname.length; ++i) if (f.$fldname[i].checked) break;\n" .
         " if (i >= f.$fldname.length) {\n" .
-        "  		errMsgs[errMsgs.length] = '" . htmlspecialchars( (xl_layout_label($fldtitle)), ENT_QUOTES) . "'; \n" .
+        "  		errMsgs[errMsgs.length] = '" . addslashes(xl_layout_label($fldtitle)) . "'; \n" .
         " }\n";
         break;
       case  2:
@@ -2768,12 +2845,23 @@ function generate_layout_validation($form_id) {
         "  		if (f.$fldname.focus) f.$fldname.focus();\n" .
 		"  		$('#" . $fldname . "').parents('div.tab').each( function(){ var tabHeader = $('#header_' + $(this).attr('id') ); tabHeader.css('color','red'); } ); " .
 		"  		$('#" . $fldname . "').attr('style','background:red'); \n" .
-        "  		errMsgs[errMsgs.length] = '" . htmlspecialchars( (xl_layout_label($fldtitle)), ENT_QUOTES) . "'; \n" .
+        "  		errMsgs[errMsgs.length] = '" . addslashes(xl_layout_label($fldtitle)) . "'; \n" .
         " } else { " .
 		" 		$('#" . $fldname . "').attr('style',''); " .
 		"  		$('#" . $fldname . "').parents('div.tab').each( function(){ var tabHeader = $('#header_' + $(this).attr('id') ); tabHeader.css('color','');  } ); " .
 		" } \n";
         break;
+      case 36: // multi select
+        echo
+        " var multi_select=f['$fldname"."[]']; \n " .
+        " var multi_choice_made=false; \n".
+        " for (var options_index=0; options_index < multi_select.length; options_index++) { ".
+              " multi_choice_made=multi_choice_made || multi_select.options[options_index].selected; \n".
+        "    } \n" .
+        " if(!multi_choice_made)
+            errMsgs[errMsgs.length] = '" . addslashes(xl_layout_label($fldtitle)) . "'; \n" .
+        "";
+          break;
     }
   }
 }
@@ -3072,6 +3160,51 @@ function lbf_current_value($frow, $formid, $encounter) {
     if (function_exists($deffname)) $currvalue = call_user_func($deffname);
   }
   return $currvalue;
+}
+
+// This returns stuff that needs to go into the <head> section of a caller using
+// the drawable image field type in a form.
+// A TRUE argument makes the widget 25% less tall.
+//
+function lbf_canvas_head($small=FALSE) {
+  $s = <<<EOD
+<link  href="{$GLOBALS['assets_static_relative']}/literallycanvas-0-4-13/css/literallycanvas.css" rel="stylesheet" />
+<script src="{$GLOBALS['assets_static_relative']}/react-15-1-0/react-with-addons.min.js"></script>
+<script src="{$GLOBALS['assets_static_relative']}/react-15-1-0/react-dom.min.js"></script>
+<script src="{$GLOBALS['assets_static_relative']}/literallycanvas-0-4-13/js/literallycanvas.min.js"></script>
+EOD;
+  if ($small) $s .= <<<EOD
+<style>
+/* Custom LiterallyCanvas styling.
+ * This makes the widget 25% less tall and adjusts some other things accordingly.
+ */
+.literally {
+  min-height:292px;min-width:300px;        /* Was 400, unspecified */
+}
+.literally .lc-picker .toolbar-button {
+  width:20px;height:20px;line-height:20px; /* Was 26, 26, 26 */
+}
+.literally .color-well {
+  font-size:8px;width:49px;                /* Was 10, 60 */
+}
+.literally .color-well-color-container {
+  width:21px;height:21px;                  /* Was 28, 28 */
+}
+.literally .lc-picker {
+  width:50px;                              /* Was 61 */
+}
+.literally .lc-drawing.with-gui {
+  left:50px;                               /* Was 61 */
+}
+.literally .lc-options {
+  left:50px;                               /* Was 61 */
+}
+.literally .color-picker-popup {
+  left:49px;bottom:0px;                   /* Was 60, 31 */
+}
+</style>
+EOD;
+  return $s;
 }
 
 ?>

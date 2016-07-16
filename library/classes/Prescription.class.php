@@ -1,6 +1,7 @@
 <?php
 require_once (dirname(__FILE__) . "/../sql.inc");
 require_once (dirname(__FILE__) . "/../lists.inc");
+require_once (dirname(__FILE__) . "/../formdata.inc.php");
 require_once("ORDataObject.class.php");
 require_once("Patient.class.php");
 require_once("Person.class.php");
@@ -135,6 +136,7 @@ class Prescription extends ORDataObject {
     var $provider;
     var $note;
     var $drug;
+    var $rxnorm_drugcode;
     var $form;
     var $dosage;
     var $quantity;
@@ -154,7 +156,7 @@ class Prescription extends ORDataObject {
     * Constructor sets all Prescription attributes to their default value
     */
     
-    function Prescription($id= "", $_prefix = "") {
+    function __construct($id= "", $_prefix = "") {
     
 	// Modified 7-2009 by BM to load the arrays from the lists in lists_options.
 	// Plan for this to only be temporary, hopefully have the lists used directly
@@ -228,6 +230,7 @@ class Prescription extends ORDataObject {
         	."Provider ID: " . $this->provider->id. "\n"
         	."Note: " . $this->note. "\n"
         	."Drug: " . $this->drug. "\n"
+          ."Code: " . $this->rxnorm_drugcode. "\n"
         	."Form: " . $this->form_array[$this->form]. "\n"
         	."Dosage: " . $this->dosage. "\n"
         	."Qty: " . $this->quantity. "\n"
@@ -414,34 +417,34 @@ class Prescription extends ORDataObject {
     }
 
     function get_start_date_y() {
-        $ymd = split("-",$this->start_date);
+        $ymd = explode("-",$this->start_date);
         return $ymd[0];
     }
     function set_start_date_y($year) {
         if (is_numeric($year)) {
-            $ymd = split("-",$this->start_date);
+            $ymd = explode("-",$this->start_date);
             $ymd[0] = $year;
             $this->start_date = $ymd[0] ."-" . $ymd[1] ."-" . $ymd[2];
         }
     }
     function get_start_date_m() {
-        $ymd = split("-",$this->start_date);
+        $ymd = explode("-",$this->start_date);
         return $ymd[1];
     }
     function set_start_date_m($month) {
         if (is_numeric($month)) {
-            $ymd = split("-",$this->start_date);
+            $ymd = explode("-",$this->start_date);
             $ymd[1] = $month;
             $this->start_date = $ymd[0] ."-" . $ymd[1] ."-" . $ymd[2];
         }
     }
     function get_start_date_d() {
-        $ymd = split("-",$this->start_date);
+        $ymd = explode("-",$this->start_date);
         return $ymd[2];
     }
     function set_start_date_d($day) {
         if (is_numeric($day)) {
-            $ymd = split("-",$this->start_date);
+            $ymd = explode("-",$this->start_date);
             $ymd[2] = $day;
             $this->start_date = $ymd[0] ."-" . $ymd[1] ."-" . $ymd[2];
         }
@@ -493,6 +496,13 @@ class Prescription extends ORDataObject {
         return $this->drug;
     }
 
+    function set_rxnorm_drugcode($rxnorm_drugcode) {
+        $this->rxnorm_drugcode = $rxnorm_drugcode;
+    }
+    function get_rxnorm_drugcode() {
+        return $this->rxnorm_drugcode;
+    }
+    
     function get_filled_by_id() {
         return $this->pharmacist->id;
     }
@@ -525,7 +535,7 @@ class Prescription extends ORDataObject {
                 break;
         }
 
-        $sql = "SELECT * FROM users JOIN facility AS f ON f.name = users.facility where users.id ='" . mysql_real_escape_string($this->provider->id) . "'";
+        $sql = "SELECT * FROM users JOIN facility AS f ON f.name = users.facility where users.id ='" . add_escape_custom($this->provider->id) . "'";
         $db = get_db();
         $results = $db->Execute($sql);
         if (!$results->EOF) {
@@ -568,7 +578,7 @@ class Prescription extends ORDataObject {
         
         $string .= $gnd . $this->provider->federal_drug_id . "\n"; 
         
-        $sql = "SELECT * FROM users JOIN facility AS f ON f.name = users.facility where users.id ='" . mysql_real_escape_string($this->provider->id) . "'";
+        $sql = "SELECT * FROM users JOIN facility AS f ON f.name = users.facility where users.id ='" . add_escape_custom($this->provider->id) . "'";
         $results = $db->Execute($sql);
         
         if (!$results->EOF) {
@@ -622,10 +632,10 @@ class Prescription extends ORDataObject {
         require_once (dirname(__FILE__) . "/../translation.inc.php");
         $p = new Prescription();
         $sql = "SELECT id FROM  " . $p->_table . " WHERE patient_id = " .
-                mysql_real_escape_string($patient_id) .
-                " ORDER BY " . mysql_real_escape_string($order_by);
+                add_escape_custom($patient_id) .
+                " ORDER BY " . add_escape_custom($order_by);
         $results = sqlQ($sql);
-        while ($row = mysql_fetch_array($results) ) {
+        while ($row = sqlFetchArray($results) ) {
             $prescriptions[] = new Prescription($row['id']);
         }
         return $prescriptions;

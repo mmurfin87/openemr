@@ -24,6 +24,11 @@
 //           Paul Simon K <paul@zhservices.com> 
 //
 // +------------------------------------------------------------------------------+
+
+require_once(dirname(__FILE__) . '/calendar.inc');
+require_once(dirname(__FILE__) . '/patient_tracker.inc.php');
+
+
 //===============================================================================
 //This section handles the events of payment screen.
 //===============================================================================
@@ -114,7 +119,7 @@ function calendar_arrived($form_pid) {
         } // end recurrtype 2
 
         else { // pc_recurrtype is 1
-				  $pc_eventDate_array = split('-', $pc_eventDate);
+				  $pc_eventDate_array = explode('-', $pc_eventDate);
 				  // Find the next day as per the frequency definition.
 				  $pc_eventDate =& __increment($pc_eventDate_array[2], $pc_eventDate_array[1], $pc_eventDate_array[0],
             $pc_recurrspec_array['event_repeat_freq'], $pc_recurrspec_array['event_repeat_freq_type']);
@@ -311,20 +316,30 @@ function InsertEvent($args,$from = 'general') {
     $pc_recurrtype = $args['recurrspec']['event_repeat_on_freq'] ? '2' : '1';
   }
   $form_pid = empty($args['form_pid']) ? '' : $args['form_pid'];
+  $form_room = empty($args['form_room']) ? '' : $args['form_room'];
 
 	if($from == 'general'){
-    return sqlInsert("INSERT INTO openemr_postcalendar_events ( " .
+    $pc_eid = sqlInsert("INSERT INTO openemr_postcalendar_events ( " .
 			"pc_catid, pc_multiple, pc_aid, pc_pid, pc_title, pc_time, pc_hometext, " .
 			"pc_informant, pc_eventDate, pc_endDate, pc_duration, pc_recurrtype, " .
 			"pc_recurrspec, pc_startTime, pc_endTime, pc_alldayevent, " .
-			"pc_apptstatus, pc_prefcatid, pc_location, pc_eventstatus, pc_sharing, pc_facility,pc_billing_location " .
-			") VALUES (?,?,?,?,?,NOW(),?,?,?,?,?,?,?,?,?,?,?,?,?,1,1,?,?)",
+			"pc_apptstatus, pc_prefcatid, pc_location, pc_eventstatus, pc_sharing, pc_facility,pc_billing_location,pc_room " .
+			") VALUES (?,?,?,?,?,NOW(),?,?,?,?,?,?,?,?,?,?,?,?,?,1,1,?,?,?)",
 			array($args['form_category'],(isset($args['new_multiple_value']) ? $args['new_multiple_value'] : ''),$args['form_provider'],$form_pid,
 			$args['form_title'],$args['form_comments'],$_SESSION['authUserID'],$args['event_date'],
 			fixDate($args['form_enddate']),$args['duration'],$pc_recurrtype,serialize($args['recurrspec']),
 			$args['starttime'],$args['endtime'],$args['form_allday'],$args['form_apptstatus'],$args['form_prefcat'],
-			$args['locationspec'],(int)$args['facility'],(int)$args['billing_facility'])
+			$args['locationspec'],(int)$args['facility'],(int)$args['billing_facility'],$form_room)
 		);
+
+            //Manage tracker status.
+            if (!empty($form_pid)) {
+              manage_tracker_status($args['event_date'],$args['starttime'],$pc_eid,$form_pid,$_SESSION['authUser'],$args['form_apptstatus'],$args['form_room']);
+            }
+            $GLOBALS['temporary-eid-for-manage-tracker'] = $pc_eid; //used by manage tracker module to set correct encounter in tracker when check in
+
+            return $pc_eid;
+
 	}elseif($from == 'payment'){
 		sqlStatement("INSERT INTO openemr_postcalendar_events ( " .
 			"pc_catid, pc_multiple, pc_aid, pc_pid, pc_title, pc_time, " .
@@ -359,18 +374,25 @@ function &__increment($d,$m,$y,$f,$t)
         // we can check to see if the day is a Sat/Sun and increment
         // the frequency count so as to ignore the weekend. hmmmm....
         $orig_freq = $f;
-        for ($daycount=1; $daycount<=$orig_freq; $daycount++) {
-            $nextWorkDOW = date('D',mktime(0,0,0,$m,($d+$daycount),$y));
-            if ($nextWorkDOW == "Sat") { $f++; }
-            else if ($nextWorkDOW == "Sun") { $f++; }
-        }
-        // and finally make sure we haven't landed on a Sat/Sun
-        // adjust as necessary
-        $nextWorkDOW = date('D',mktime(0,0,0,$m,($d+$f),$y));
-        if ($nextWorkDOW == "Sat") { $f+=2; }
-        else if ($nextWorkDOW == "Sun") { $f++; }
+		for ($daycount=1; $daycount<=$orig_freq; $daycount++) {
+			$nextWorkDOW = date('w',mktime(0,0,0,$m,($d+$daycount),$y));
+			if (is_weekend_day($nextWorkDOW)) { $f++; }
+		}
 
-        return date('Y-m-d',mktime(0,0,0,$m,($d+$f),$y));
+        // and finally make sure we haven't landed on a end week days
+        // adjust as necessary
+        $nextWorkDOW = date('w',mktime(0,0,0,$m,($d+$f),$y));
+        if (count($GLOBALS['weekend_days']) === 2){
+			if ($nextWorkDOW == $GLOBALS['weekend_days'][0]) {
+				$f+=2;
+			}elseif($nextWorkDOW == $GLOBALS['weekend_days'][1]){
+				 $f++;
+			}
+		} elseif(count($GLOBALS['weekend_days']) === 1 && $nextWorkDOW === $GLOBALS['weekend_days'][0]) {
+			$f++;
+		}
+
+		return date('Y-m-d',mktime(0,0,0,$m,($d+$f),$y));
 
     } elseif($t == REPEAT_EVERY_WEEK) {
         return date('Y-m-d',mktime(0,0,0,$m,($d+(7*$f)),$y));

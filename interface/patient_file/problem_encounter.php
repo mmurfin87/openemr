@@ -1,12 +1,32 @@
 <?php
 /**
- * Copyright (C) 2005 Rod Roark <rod@sunsetsystems.com>
  *
- * This program is free software; you can redistribute it and/or
+ * This script add and delete Issues and Encounters relationships.
+ *
+ * Copyright (C) 2005 Rod Roark <rod@sunsetsystems.com>
+ * Copyright (C) 2015 Roberto Vasquez <robertogagliotta@gmail.com>
+ * Copyright (C) 2015 Brady Miller <brady@sparmy.com>
+ * 
+ * LICENSE: This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://opensource.org/licenses/gpl-license.php>;.
+ *
+ * @package OpenEMR
+ * @author  Rod Roark <rod@sunsetsystems.com>
+ * @author  Roberto Vasquez <robertogagliotta@gmail.com>
+ * @author  Brady Miller <brady@sparmy.com>
+ * @link    http://www.open-emr.org
  */
+
+ $fake_register_globals=false;
+ $sanitize_all_escapes=true;
 
  include_once("../globals.php");
  include_once("$srcdir/patient.inc");
@@ -24,7 +44,7 @@
 
  if (!$thisauth) {
   echo "<html>\n<body>\n";
-  echo "<p>" .xl('You are not authorized for this.'). "</p>\n";
+  echo "<p>" .xlt('You are not authorized for this.'). "</p>\n";
   echo "</body>\n</html>\n";
   exit();
  }
@@ -42,44 +62,42 @@
   preg_match_all($pattern, $form_pelist, $matches);
   $numsets = count($matches[1]);
 
-  sqlQuery("DELETE FROM issue_encounter WHERE pid = '$form_pid'");
-
+  $query = "DELETE FROM issue_encounter WHERE pid = ?";
+  sqlQuery($query, array($form_pid));
   for ($i = 0; $i < $numsets; ++$i) {
    $list_id   = $matches[1][$i];
    $encounter = $matches[2][$i];
-   // $resolved = ($matches[3][$i] == 'Y') ? 1 : 0;
    $query = "INSERT INTO issue_encounter ( " .
-    "pid, list_id, encounter" . // , resolved " .
+    "pid, list_id, encounter" .
     ") VALUES ( " .
-    "$form_pid, $list_id, $encounter" . // , $resolved " .
+    " ?, ?, ?" .
     ")";
-   sqlQuery($query);
+   sqlQuery($query, array($form_pid, $list_id, $encounter)); 
   }
 
-  // All done.
   echo "<html><body><script language='JavaScript'>\n";
-  if ($alertmsg) echo " alert('$alertmsg');\n";
+  if ($alertmsg) echo " alert('" . addslashes($alertmsg) . "');\n";
   echo " window.close();\n";
   echo "</script></body></html>\n";
   exit();
  }
 
  // get problems
- $pres = sqlStatement("SELECT * FROM lists WHERE pid = $pid " .
-  "ORDER BY type, date");
+ $pres = sqlStatement("SELECT * FROM lists WHERE pid = ? " .
+  "ORDER BY type, date", array($pid));
 
  // get encounters
- $eres = sqlStatement("SELECT * FROM form_encounter WHERE pid = $pid " .
-  "ORDER BY date DESC");
+ $eres = sqlStatement("SELECT * FROM form_encounter WHERE pid = ? " .
+  "ORDER BY date DESC", array($pid));
 
  // get problem/encounter relations
- $peres = sqlStatement("SELECT * FROM issue_encounter WHERE pid = $pid");
+ $peres = sqlStatement("SELECT * FROM issue_encounter WHERE pid = ?", array($pid));
 ?>
 <html>
 <head>
 <?php html_header_show();?>
 <link rel=stylesheet href="<?php echo $css_header; ?>" type="text/css">
-<title><?php xl('Issues and Encounters','e'); ?></title>
+<title><?php echo xlt('Issues and Encounters'); ?></title>
 
 <style>
 tr.head   { font-size:10pt; background-color:#cccccc; text-align:center; }
@@ -123,7 +141,7 @@ function newIssue() {
 function newEncounter() {
  var f = document.forms[0];
  if (!f.form_save.disabled) {
-  if (!confirm('This will abandon your unsaved changes.  Are you sure?'))
+  if (!confirm('<?php echo xls('This will abandon your unsaved changes. Are you sure?'); ?>'))
    return;
  }
  top.restoreSession();
@@ -250,7 +268,7 @@ function doclick(pfx, id) {
     if (pfx == 'p') addPair(id, keyid); else addPair(keyid, id);
    }
   } else {
-   alert('You must first select an item in the section whose radio button is checked.');
+   alert('<?php echo xls('You must first select an item in the section whose radio button is checked.') ;?>');
   }
  }
 }
@@ -262,13 +280,13 @@ function doclick(pfx, id) {
  bgcolor='#ffffff' onunload='imclosing()'>
 <form method='post' action='problem_encounter.php' onsubmit='return top.restoreSession()'>
 <?php
- echo "<input type='hidden' name='form_pid' value='$pid' />\n";
+ echo "<input type='hidden' name='form_pid' value='" . attr($pid) . "' />\n";
  // pelist looks like /problem,encounter/problem,encounter/[...].
  echo "<input type='hidden' name='form_pelist' value='/";
  while ($row = sqlFetchArray($peres)) {
   // echo $row['list_id'] . "," . $row['encounter'] . "," .
   //  ($row['resolved'] ? "Y" : "N") . "/";
-  echo $row['list_id'] . "," . $row['encounter'] . "/";
+  echo text($row['list_id']) . "," . text($row['encounter']) . "/";
  }
  echo "' />\n";
 ?>
@@ -277,7 +295,7 @@ function doclick(pfx, id) {
 
  <tr>
   <td colspan='2' align='center'>
-   <b><?php xl('Issues and Encounters for','e'); ?> <?php echo $patdata['fname'] . " " . $patdata['lname'] . " ($pid)</b>\n"; ?>
+   <b><?php echo xlt('Issues and Encounters for'); ?> <?php echo text($patdata['fname']) . " " . text($patdata['lname']) . " (" . text($pid) . ")</b>\n"; ?>
   </td>
  </tr>
 
@@ -287,23 +305,23 @@ function doclick(pfx, id) {
     <tr class='head'>
      <td colspan='3' align='center'>
       <input type='radio' name='form_key' value='p' onclick='clearall()' checked />
-      <b><?php xl('Issues Section','e'); ?></b>
+      <b><?php echo xlt('Issues Section'); ?></b>
      </td>
     </tr>
     <tr class='head'>
-     <td><?php xl('Type','e'); ?></td>
-     <td><?php xl('Title','e'); ?></td>
-     <td><?php xl('Description','e'); ?></td>
+     <td><?php echo xlt('Type'); ?></td>
+     <td><?php echo xlt('Title'); ?></td>
+     <td><?php echo xlt('Description'); ?></td>
     </tr>
 <?php
  while ($row = sqlFetchArray($pres)) {
   $rowid = $row['id'];
-  echo "    <tr class='detail' id='p_$rowid' onclick='doclick(\"p\", $rowid)'>\n";
-  echo "     <td valign='top'>" . $ISSUE_TYPES[($row['type'])][1] . "</td>\n";
-  echo "     <td valign='top'>" . $row['title'] . "</td>\n";
-  echo "     <td valign='top'>" . $row['comments'] . "</td>\n";
+  echo "    <tr class='detail' id='p_" . attr($rowid) . "' onclick='doclick(\"p\", " . attr(addslashes($rowid)) . ")'>\n";
+  echo "     <td valign='top'>" . text($ISSUE_TYPES[($row['type'])][1]) . "</td>\n";
+  echo "     <td valign='top'>" . text($row['title']) . "</td>\n";
+  echo "     <td valign='top'>" . text($row['comments']) . "</td>\n";
   echo "    </tr>\n";
-  $endjs .= "pselected['$rowid'] = '';\n";
+  $endjs .= "pselected['" . attr($rowid) . "'] = '';\n";
  }
 ?>
    </table>
@@ -313,21 +331,21 @@ function doclick(pfx, id) {
     <tr class='head'>
      <td colspan='2' align='center'>
       <input type='radio' name='form_key' value='e' onclick='clearall()' />
-      <b><?php xl('Encounters Section','e'); ?></b>
+      <b><?php echo xlt('Encounters Section'); ?></b>
      </td>
     </tr>
     <tr class='head'>
-     <td><?php xl('Date','e'); ?></td>
-     <td><?php xl('Presenting Complaint','e'); ?></td>
+     <td><?php echo xlt('Date'); ?></td>
+     <td><?php echo xlt('Presenting Complaint'); ?></td>
     </tr>
 <?php
  while ($row = sqlFetchArray($eres)) {
   $rowid = $row['encounter'];
-  echo "    <tr class='detail' id='e_$rowid' onclick='doclick(\"e\", $rowid)'>\n";
-  echo "     <td valign='top'>" . substr($row['date'], 0, 10) . "</td>\n";
-  echo "     <td valign='top'>" . $row['reason'] . "</td>\n";
+  echo "    <tr class='detail' id='e_" . attr($rowid) . "' onclick='doclick(\"e\", " . attr(addslashes($rowid)) . ")'>\n";
+  echo "     <td valign='top'>" . text(substr($row['date'], 0, 10)) . "</td>\n";
+  echo "     <td valign='top'>" . text($row['reason']) . "</td>\n";
   echo "    </tr>\n";
-  $endjs .= "eselected['$rowid'] = '';\n";
+  $endjs .= "eselected['" . attr($rowid) . "'] = '';\n";
  }
 ?>
    </table>
@@ -336,12 +354,12 @@ function doclick(pfx, id) {
 
  <tr>
   <td colspan='2' align='center'>
-   <input type='submit' name='form_save' value='<?php xl('Save','e'); ?>' disabled /> &nbsp;
-   <input type='button' value='<?php xl('Add Issue','e'); ?>' onclick='newIssue()' />
+   <input type='submit' name='form_save' value='<?php echo xla('Save'); ?>' disabled /> &nbsp;
+   <input type='button' value='<?php echo xla('Add Issue'); ?>' onclick='newIssue()' />
 <?php if (!$GLOBALS['concurrent_layout']) { ?>
-   <input type='button' value='<?php xl('Add Encounter','e'); ?>' onclick='newEncounter()' />
+   <input type='button' value='<?php echo xla('Add Encounter'); ?>' onclick='newEncounter()' />
 <?php } ?>
-   <input type='button' value='<?php xl('Cancel','e'); ?>' onclick='window.close()' />
+   <input type='button' value='<?php echo xla('Cancel'); ?>' onclick='window.close()' />
   </td>
  </tr>
 
@@ -349,18 +367,18 @@ function doclick(pfx, id) {
 
 </form>
 
-<p><b><?php xl('Instructions:','e'); ?></b> <?php xl('Choose a section and click an item within it; then in
+<p><b><?php echo xlt('Instructions:'); ?></b> <?php echo xlt('Choose a section and click an item within it; then in
 the other section you will see the related items highlighted, and you can click
-in that section to add and delete relationships.','e'); ?>
+in that section to add and delete relationships.'); ?>
 </p>
 
 <script>
 <?php
  echo $endjs;
  if ($_REQUEST['issue']) {
-  echo "doclick('p', " . $_REQUEST['issue'] . ");\n";
+  echo "doclick('p', " . attr(addslashes($_REQUEST['issue'])) . ");\n";
  }
- if ($alertmsg) echo "alert('$alertmsg');\n";
+ if ($alertmsg) echo "alert('" . addslashes($alertmsg) . "');\n";
 ?>
 </script>
 </body>

@@ -149,11 +149,11 @@ div.tiny { width:1px; height:1px; font-size:1px; }
   dlgopen('add_edit_event.php?startampm=' + startampm +
    '&starttimeh=' + starttimeh + '&starttimem=' + starttimem +
    '&date=' + eventdate + '&userid=' + providerid + '&catid=' + catid,
-   '_blank', 550, 310);
+   '_blank', 775, 375);
  }
 
  function oldEvt(eventdate, eventid) {
-  dlgopen('add_edit_event.php?date='+eventdate+'&eid=' + eventid, '_blank', 550, 310);
+  dlgopen('add_edit_event.php?date='+eventdate+'&eid=' + eventid, '_blank', 775, 375);
  }
 
  function goPid(pid) {
@@ -266,7 +266,7 @@ div.tiny { width:1px; height:1px; font-size:1px; }
         <input type='button' value='[-php-] echo xl("Add"); [-/php-]' onclick='newEvt(1, 9, 00, [-php-] echo $Date;[-/php-], 0, 0)' />
         <input type='button' value='[-php-] echo xl("Search"); [-/php-]' onclick='top.restoreSession();location="index.php?module=PostCalendar&func=search"' />
 
-        <a href="[-pc_url action=$VIEW_TYPE print="true"-]">[-php-] echo xl("Print"); [-/php-]</a>
+        <a href="[-pc_url action=$VIEW_TYPE print="true"-]">[-php-] echo xlt("View Printable Version"); [-/php-]</a>
 
     </div>
 

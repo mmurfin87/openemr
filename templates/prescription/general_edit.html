@@ -55,6 +55,7 @@
    selchoose(f.form, d[1]);
    f.dosage.value = d[2];
    f.size.value = d[3];
+   f.rxnorm_drugcode.value = d[11];
    selchoose(f.unit, d[4]);
    selchoose(f.route, d[5]);
    selchoose(f.interval, d[6]);
@@ -119,6 +120,23 @@
         <input type="checkbox" id="escribe_flag" name="escribe_flag" checked>
       {/if}
       <span class="text">{xl t='E-Prescription?'}</span><br>
+
+      {amcCollect amc_id='e_prescribe_chk_formulary_amc' patient_id=$prescription->patient->id object_category='prescriptions' object_id=$prescription->id}
+      {if not $amcCollectReturn}
+        <input type="checkbox" id="checked_formulary_flag" name="checked_formulary_flag">
+      {else}
+        <input type="checkbox" id="checked_formulary_flag" name="checked_formulary_flag" checked>
+      {/if}
+      <span class="text">{xl t='Checked Drug Formulary?'}</span><br>
+
+      {amcCollect amc_id='e_prescribe_cont_subst_amc' patient_id=$prescription->patient->id object_category='prescriptions' object_id=$prescription->id}
+      {if not $amcCollectReturn}
+        <input type="checkbox" id="controlled_substance_flag" name="controlled_substance_flag">
+      {else}
+        <input type="checkbox" id="controlled_substance_flag" name="controlled_substance_flag" checked>
+      {/if}
+      <span class="text">{xl t='Controlled Substance?'}</span><br>
+
     </div>
   </div>
 {php} } {/php}
@@ -159,6 +177,7 @@
 		<select name="drug_id" onchange="drugselected(this)">
     {html_options values=$DRUG_ARRAY_VALUES output=$DRUG_ARRAY_OUTPUT selected=$prescription->get_drug_id()}
 		</select>
+		<input type="hidden" name="rxnorm_drugcode" value="{$prescription->rxnorm_drugcode}">
 	</td>
 </tr>
 {/if}

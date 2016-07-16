@@ -102,6 +102,10 @@ class Installer
   {
     $this->dbh = $this->connect_to_database( $this->server, $this->root, $this->rootpass, $this->port );
     if ( $this->dbh ) {
+      if (! $this->set_sql_strict()) {
+        $this->error_message = 'unable to set strict sql setting';
+        return FALSE;        
+      }
       return TRUE;
     } else {
       $this->error_message = 'unable to connect to database as root';
@@ -111,15 +115,20 @@ class Installer
 
   public function user_database_connection()
   {
-    $this->dbh = $this->connect_to_database( $this->server, $this->login, $this->pass, $this->port );
+    $this->dbh = $this->connect_to_database( $this->server, $this->login, $this->pass, $this->port, $this->dbname );
     if ( ! $this->dbh ) {
       $this->error_message = "unable to connect to database as user: '$this->login'";
       return FALSE;
     }
-    if ( ! $this->set_collation() ) {
+    if ( ! $this->set_sql_strict() ) {
+      $this->error_message = 'unable to set strict sql setting';
       return FALSE;
     }
-    if ( ! mysql_select_db($this->dbname, $this->dbh) ) {
+    if ( ! $this->set_collation() ) {
+      $this->error_message = 'unable to set sql collation';
+      return FALSE;
+    }
+    if ( ! mysqli_select_db($this->dbh, $this->dbname) ) {
       $this->error_message = "unable to select database: '$this->dbname'";
       return FALSE;
     }
@@ -145,7 +154,7 @@ class Installer
   }
 
   public function disconnect() {
-    return mysql_close($this->dbh);
+    return mysqli_close($this->dbh);
   }
 
   /**
@@ -179,6 +188,15 @@ class Installer
     }
     $query = "";
     $line = "";
+
+    // Settings to drastically speed up installation with InnoDB
+    if ( ! $this->execute_sql("SET autocommit=0;") ){
+      return FALSE;
+    }
+    if ( ! $this->execute_sql("START TRANSACTION;") ){
+      return FALSE;
+    }    
+
     while (!feof ($fd)){
             $line = fgets($fd,1024);
             $line = rtrim($line);
@@ -192,10 +210,21 @@ class Installer
             $chr = substr($query,strlen($query)-1,1);
             if ($chr == ";") { // valid query, execute
                     $query = rtrim($query,";");
-                    $this->execute_sql( $query );
+                    if ( ! $this->execute_sql( $query ) ){
+                            return FALSE;
+                    }                    
                     $query = "";
             }
     }
+
+    // Settings to drastically speed up installation with InnoDB
+    if ( ! $this->execute_sql("COMMIT;") ){
+      return FALSE;
+    }
+    if ( ! $this->execute_sql("SET autocommit=1;") ){
+      return FALSE;
+    }
+
     $sql_results .= "OK<br>\n";
     fclose($fd);
     return $sql_results;
@@ -205,7 +234,7 @@ class Installer
     include dirname(__FILE__) . "/../../version.php";
     if ($this->execute_sql("UPDATE version SET v_major = '$v_major', v_minor = '$v_minor', v_patch = '$v_patch', v_realpatch = '$v_realpatch', v_tag = '$v_tag', v_database = '$v_database', v_acl = '$v_acl'") == FALSE) {
       $this->error_message = "ERROR. Unable insert version information into database\n" .
-        "<p>".mysql_error()." (#".mysql_errno().")\n";
+        "<p>".mysqli_error($this->dbh)." (#".mysqli_errno($this->dbh).")\n";
       return FALSE;
     }
     return TRUE;
@@ -214,7 +243,7 @@ class Installer
   public function add_initial_user() {
     if ($this->execute_sql("INSERT INTO groups (id, name, user) VALUES (1,'$this->igroup','$this->iuser')") == FALSE) {
       $this->error_message = "ERROR. Unable to add initial user group\n" .
-        "<p>".mysql_error()." (#".mysql_errno().")\n";
+        "<p>".mysqli_error($this->dbh)." (#".mysqli_errno($this->dbh).")\n";
       return FALSE;
     }
     $password_hash = "NoLongerUsed";  // This is the value to insert into the password column in the "users" table. password details are now being stored in users_secure instead.
@@ -222,7 +251,7 @@ class Installer
     $hash=oemr_password_hash($this->iuserpass,$salt);
     if ($this->execute_sql("INSERT INTO users (id, username, password, authorized, lname, fname, facility_id, calendar, cal_ui) VALUES (1,'$this->iuser','$password_hash',1,'$this->iuname','$this->iufname',3,1,3)") == FALSE) {
       $this->error_message = "ERROR. Unable to add initial user\n" .
-        "<p>".mysql_error()." (#".mysql_errno().")\n";
+        "<p>".mysqli_error($this->dbh)." (#".mysqli_errno($this->dbh).")\n";
       return FALSE;
       
     }
@@ -230,7 +259,7 @@ class Installer
     // Create the new style login credentials with blowfish and salt
     if ($this->execute_sql("INSERT INTO users_secure (id, username, password, salt) VALUES (1,'$this->iuser','$hash','$salt')") == FALSE) {
       $this->error_message = "ERROR. Unable to add initial user login credentials\n" .
-        "<p>".mysql_error()." (#".mysql_errno().")\n";
+        "<p>".mysqli_error($this->dbh)." (#".mysqli_errno($this->dbh).")\n";
       return FALSE;
     }
     // Add the official openemr users (services)
@@ -322,7 +351,7 @@ $config = 1; /////////////
         list($fldname, $fldtype, $flddef, $flddesc) = $fldarr;
         if (is_array($fldtype) || substr($fldtype, 0, 2) !== 'm_') {
           $res = $this->execute_sql("SELECT count(*) AS count FROM globals WHERE gl_name = '$fldid'");
-          $row = @mysql_fetch_array($res, MYSQL_ASSOC);
+          $row = mysqli_fetch_array($res, MYSQLI_ASSOC);
           if (empty($row['count'])) {
             $this->execute_sql("INSERT INTO globals ( gl_name, gl_index, gl_value ) " .
                            "VALUES ( '$fldid', '0', '$flddef' )");
@@ -442,22 +471,30 @@ $config = 1; /////////////
     if ( ! $this->dbh ) {
       $this->user_database_connection();
     }
-    $results = mysql_query($sql, $this->dbh);
+    $results = mysqli_query($this->dbh, $sql);
     if ( $results ) {
       return $results;
     } else {
-      $this->error_message = "unable to execute SQL: '$sql' due to: " . mysql_error();
+      $error_mes = mysqli_error($this->dbh);
+      $this->error_message = "unable to execute SQL: '$sql' due to: " . $error_mes;
+      error_log("ERROR IN OPENEMR INSTALL: Unable to execute SQL: ".$sql." due to: ".$error_mes);
       return False;
     }
   }
 
-  private function connect_to_database( $server, $user, $password, $port )
+  private function connect_to_database( $server, $user, $password, $port, $dbname='' )
   {
     if ($server == "localhost")
-      $dbh = mysql_connect($server, $user, $password);
+      $dbh = mysqli_connect($server, $user, $password, $dbname);
     else
-      $dbh = mysql_connect("$server:$port", $user, $password);
+      $dbh = mysqli_connect($server, $user, $password, $dbname, $port);
     return $dbh;
+  }
+
+  private function set_sql_strict()
+  {
+    // Turn off STRICT SQL
+    return $this->execute_sql("SET sql_mode = ''");
   }
 
   private function set_collation()

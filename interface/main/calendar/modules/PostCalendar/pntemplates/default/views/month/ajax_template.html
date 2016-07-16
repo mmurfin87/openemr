@@ -43,11 +43,11 @@ $timeslotHeightUnit="px";
                 }
         }
     [-/php-]
-    ,'_blank', 575, 375);
+    ,'_blank', 775, 375);
  }
 
  function oldEvt(eventdate, eventid, pccattype) {
-  dlgopen('add_edit_event.php?date='+eventdate+'&eid=' + eventid+'&prov=' + pccattype, '_blank', 575, 375);
+  dlgopen('add_edit_event.php?date='+eventdate+'&eid=' + eventid+'&prov=' + pccattype, '_blank', 775, 375);
  }
 
  function goPid(pid) {
@@ -119,6 +119,8 @@ $timeslotHeightUnit="px";
  $NEXT_WEEK_URL = $this->_tpl_vars['NEXT_WEEK_URL'];
  $PREV_DAY_URL  = $this->_tpl_vars['PREV_DAY_URL'];
  $NEXT_DAY_URL  = $this->_tpl_vars['NEXT_DAY_URL'];
+ $PREV_MONTH_URL = $this->_tpl_vars['PREV_MONTH_URL'];
+ $NEXT_MONTH_URL = $this->_tpl_vars['NEXT_MONTH_URL'];
 
  $Date =  postcalendar_getDate();
  if (!isset($y)) $y = substr($Date, 0, 4);
@@ -166,7 +168,7 @@ echo xl(date('F', strtotime($Date))) . " " . date('Y', strtotime($Date));
 
 <div id="viewPicker">
 [-php-]
-echo "   <a href='#' type='button' id='printview' title='" .xl ("Print View"). "' class='css_button'/><span>".xl("Print")."</span></a>\n";
+echo "   <a href='#' type='button' id='printview' title='" .xl ("Print View"). "' class='css_button'/><span>" . xlt("View Printable Version") . "</span></a>\n";
 echo "   <a href='#' type='button' value='" .xl ("Refresh"). "' onclick='javascript:refreshme()' class='css_button'/><span>".xl("Refresh")."</span></a>\n";
 echo "   <a href='#' type='button' id='dayview' title='" .htmlspecialchars( xl('Day View'), ENT_QUOTES). "' class='css_button'/><span>".htmlspecialchars( xl('Day'), ENT_QUOTES)."</span></a>\n";
 echo "   <a href='#' type='button' id='weekview' title='" .htmlspecialchars( xl('Week View'), ENT_QUOTES). "' class='css_button'/><span>".htmlspecialchars( xl('Week'), ENT_QUOTES)."</span></a>\n";
@@ -239,7 +241,7 @@ foreach ($atmp as $currdate) {
     if (date('m', $currdate) != $month) {
         $tdClass = "tdOtherMonthDay-small";
     }
-    if ((date('w', $currdate) == 0) || (date('w', $currdate) == 6)) {
+    if (is_weekend_day(date('w', $currdate))) {
         $tdClass = "tdWeekend-small";
     }
 
@@ -390,7 +392,8 @@ foreach ($providers as $provider) {
                         'pc_topic'=>$topic));
 
         if (date("w", strtotime($date)) == $DOWlist[0]) { echo "<tr>"; }
-        echo "<td class='schedule'>";
+        $classForWeekend = is_weekend_day(date('w', strtotime($date))) ? 'weekend-day' : 'work-day';
+        echo "<td class='schedule " . $classForWeekend . "'>";
 
         echo "<div class='calendar_day'>\n";
 
@@ -505,7 +508,7 @@ foreach ($providers as $provider) {
                     $link_title .= xl('Age') . ": ".$patient_age."\n" . xl('DOB') . ": ".$patient_dob.htmlspecialchars($comment, ENT_QUOTES)."\n";
                     $link_title .= "(" . xl('Click to view') . ")";
                     $content .= "<a href='javascript:goPid($patientid)' title='$link_title'>";
-                    $content .= "<img src='$TPL_IMAGE_PATH/user-green.gif' border='0' title='$link_title' alt='View Patient' />";
+                    $content .= "<img src='{$this->_tpl_vars[TPL_IMAGE_PATH]}/user-green.gif' border='0' title='$link_title' alt='View Patient' />";
                     if ($catid == 1) $content .= "<strike>";
                     $content .= htmlspecialchars($lname);
                     if ($GLOBALS['calendar_appt_style'] != 1) {

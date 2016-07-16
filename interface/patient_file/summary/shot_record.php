@@ -110,7 +110,7 @@ function convertToDataArray($data_array) {
 function printPDF($res, $res2, $data) {
 	require_once ($GLOBALS['fileroot'] . "/library/classes/class.ezpdf.php");
 	
-	$pdf =& new Cezpdf("LETTER");
+	$pdf = new Cezpdf("LETTER");
 	$pdf->ezSetMargins(72,30,50,30);
 	$pdf->selectFont($GLOBALS['fileroot'] . "/library/fonts/Helvetica.afm");
 	
@@ -288,7 +288,7 @@ function printHTML($res, $res2, $data) {
   ?>
     
   <script language='JavaScript'>
-    window.print();
+    opener.top.printLogPrint(window);
   </script>
   </body>
   </html>

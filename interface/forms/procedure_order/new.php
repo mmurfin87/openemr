@@ -61,6 +61,16 @@ function QuotedOrNull($fld) {
   return "'$fld'";
 }
 
+function getListOptions($list_id , $fieldnames=array('option_id', 'title', 'seq'))
+{
+	$output =  array();
+	$query = sqlStatement("SELECT ".implode(',',$fieldnames)." FROM list_options where list_id=? order by seq", array($list_id));
+	while($ll = sqlFetchArray($query)) {
+		foreach($fieldnames as $val)
+		  $output[$ll['option_id']][$val] = $ll[$val];					
+	}
+	return $output;
+}
 $formid = formData('id', 'G') + 0;
 
 // If Save or Transmit was clicked, save the info.
@@ -110,12 +120,17 @@ if ($_POST['bn_save'] || $_POST['bn_xmit']) {
 
     $prefix = "ans$i" . "_";
 
-    $poseq = sqlInsert("INSERT INTO procedure_order_code SET ".
+      sqlBeginTrans();
+      $procedure_order_seq = sqlQuery( "SELECT IFNULL(MAX(procedure_order_seq),0) + 1 AS increment FROM procedure_order_code WHERE procedure_order_id = ? ", array($formid));
+      $poseq = sqlInsert("INSERT INTO procedure_order_code SET ".
       "procedure_order_id = ?, " .
       "diagnoses = ?, " .
+	  "procedure_order_title = ?, " .
       "procedure_code = (SELECT procedure_code FROM procedure_type WHERE procedure_type_id = ?), " .
-      "procedure_name = (SELECT name FROM procedure_type WHERE procedure_type_id = ?)",
-      array($formid, strip_escape_custom($_POST['form_proc_type_diag'][$i]), $ptid, $ptid));
+      "procedure_name = (SELECT name FROM procedure_type WHERE procedure_type_id = ?)," .
+      "procedure_order_seq = ? ",
+      array($formid, strip_escape_custom($_POST['form_proc_type_diag'][$i]), strip_escape_custom($_POST['form_proc_order_title'][$i]), $ptid, $ptid, $procedure_order_seq['increment']));
+      sqlCommitTrans();
 
     $qres = sqlStatement("SELECT " .
       "q.procedure_code, q.question_code, q.options, q.fldtype " .
@@ -142,12 +157,16 @@ if ($_POST['bn_save'] || $_POST['bn_xmit']) {
       if (!is_array($data)) $data = array($data);
       foreach ($data as $datum) {
         // Note this will auto-assign the seq value.
+        sqlBeginTrans();
+        $answer_seq = sqlQuery( "SELECT IFNULL(MAX(answer_seq),0) + 1 AS increment FROM procedure_answers WHERE procedure_order_id = ? AND procedure_order_seq = ? AND question_code = ? ", array($formid, $poseq, $qcode));
         sqlStatement("INSERT INTO procedure_answers SET ".
           "procedure_order_id = ?, " .
           "procedure_order_seq = ?, " .
           "question_code = ?, " .
+          "answer_seq = ?, " .
           "answer = ?",
-          array($formid, $poseq, $qcode, strip_escape_custom($datum)));
+          array($formid, $poseq, $qcode, $answer_seq['increment'], strip_escape_custom($datum)));
+        sqlCommitTrans();
       }
     }
   }
@@ -278,13 +297,16 @@ function lab_id_changed() {
 function addProcLine() {
  var f = document.forms[0];
  var table = document.getElementById('proctable');
+ var e = document.getElementById("procedure_type_names");
+ var prc_name = e.options[e.selectedIndex].value;
  // Compute i = next procedure index.
  var i = 0;
  for (; f['form_proc_type[' + i + ']']; ++i);
  var row = table.insertRow(table.rows.length);
  var cell = row.insertCell(0);
  cell.vAlign = 'top';
- cell.innerHTML = "<b><?php echo xls('Procedure'); ?> " + (i + 1) + ":</b>";
+ //cell.innerHTML = "<b><?php echo xl('Procedure'); ?> " + (i + 1) + ":</b>";
+ cell.innerHTML = "<b>"+prc_name+"<input type='hidden' name='form_proc_order_title[" + i + "]' value='"+ prc_name +"'></b>";
  var cell = row.insertCell(1);
  cell.vAlign = 'top';
  cell.innerHTML =
@@ -489,7 +511,7 @@ generate_form_field(array('data_type'=>1,'field_id'=>'order_status',
   if ($formid) {
     $opres = sqlStatement("SELECT " .
       "pc.procedure_order_seq, pc.procedure_code, pc.procedure_name, " .
-      "pc.diagnoses, pt.procedure_type_id " .
+      "pc.diagnoses,pc.procedure_order_title, pt.procedure_type_id " .
       "FROM procedure_order_code AS pc " .
       "LEFT JOIN procedure_type AS pt ON pt.lab_id = ? AND " .
       "pt.procedure_code = pc.procedure_code " .
@@ -510,7 +532,14 @@ generate_form_field(array('data_type'=>1,'field_id'=>'order_status',
     }
 ?>
  <tr>
-  <td width='1%' valign='top'><b><?php echo xl('Procedure') . ' ' . ($i + 1); ?>:</b></td>
+ <!--<td width='1%' valign='top'><b><?php echo xl('Procedure') . ' ' . ($i + 1); ?>:</b></td>-->
+ <?php if(empty($formid) || empty($oprow['procedure_order_title'])) {?> 
+        <td width='1%' valign='top'><input type='hidden' name='form_proc_order_title[<?php echo $i; ?>]' value='Procedure'><b><?php echo xlt('Procedure');?></b></td>
+    <?php } else {?>
+     <td width='1%' valign='top'>
+        <input type='hidden' name='form_proc_order_title[<?php echo $i; ?>]' value='<?php echo attr($oprow['procedure_order_title']) ?>'><b><?php echo text($oprow['procedure_order_title']) ?></b>
+     </td>
+    <?php } ?>
   <td valign='top'>
    <input type='text' size='50' name='form_proc_type_desc[<?php echo $i; ?>]'
     value='<?php echo attr($oprow['procedure_name']) ?>'
@@ -544,6 +573,12 @@ if ($qoe_init_javascript)
 </table>
 
 <p>
+<?php $procedure_order_type = getListOptions('order_type' , array('option_id', 'title')); ?>
+<select name="procedure_type_names" id="procedure_type_names">
+	<?php foreach($procedure_order_type as $ordered_types){?>
+	<option value="<?php echo attr($ordered_types['option_id']); ?>" ><?php echo text(xl_list_label($ordered_types['title'])) ; ?></option>
+	<?php } ?>    
+</select> 
 <input type='button' value='<?php echo xla('Add Procedure'); ?>' onclick="addProcLine()" />
 &nbsp;
 <input type='submit' name='bn_save' value='<?php echo xla('Save'); ?>' onclick='transmitting = false;' />

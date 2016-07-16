@@ -76,25 +76,25 @@ class FormHpTjePrimary extends ORDataObject {
 	function populate() {
 		parent::populate();
 		
-		$sql = "SELECT name from form_hp_tje_checks where foreign_id = '" . mysql_real_escape_string($this->id) . "'";
+		$sql = "SELECT name from form_hp_tje_checks where foreign_id = '" . add_escape_custom($this->id) . "'";
 		$results = sqlQ($sql);
 
-		while ($row = mysql_fetch_array($results, MYSQL_ASSOC)) {
+		while ($row = sqlFetchArray($results)) {
 			$this->checks[] = $row['name'];	
 		}
 		
 		
-		$sql = "SELECT doctor,specialty,tx_rendered,effectiveness,date from form_hp_tje_history where foreign_id = '" . mysql_real_escape_string($this->id) . "'";
+		$sql = "SELECT doctor,specialty,tx_rendered,effectiveness,date from form_hp_tje_history where foreign_id = '" . add_escape_custom($this->id) . "'";
 		$results = sqlQ($sql);
 
-		while ($row = mysql_fetch_array($results, MYSQL_ASSOC)) {
+		while ($row = sqlFetchArray($results)) {
 			$this->history[] = $row;	
 		}
 		
-		$sql = "SELECT nature_of_accident,injuries,date from form_hp_tje_previous_accidents where foreign_id = '" . mysql_real_escape_string($this->id) . "'";
+		$sql = "SELECT nature_of_accident,injuries,date from form_hp_tje_previous_accidents where foreign_id = '" . add_escape_custom($this->id) . "'";
 		$results = sqlQ($sql);
 
-		while ($row = mysql_fetch_array($results, MYSQL_ASSOC)) {
+		while ($row = sqlFetchArray($results)) {
 			$this->previous_accidents[] = $row;	
 		}
 		
@@ -137,39 +137,39 @@ class FormHpTjePrimary extends ORDataObject {
 	}
 	
 	function get_date_of_onset_y() {
-		$ymd = split("-",$this->date_of_onset);
+		$ymd = explode("-",$this->date_of_onset);
 		return $ymd[0];
 	}
 	
 	function set_date_of_onset_y($year) {
 		if (is_numeric($year)) {
-			$ymd = split("-",$this->date_of_onset);
+			$ymd = explode("-",$this->date_of_onset);
 			$ymd[0] = $year;
 			$this->date_of_onset = $ymd[0] ."-" . $ymd[1] ."-" . $ymd[2];
 		}
 	}
 	
 	function get_date_of_onset_m() {
-		$ymd = split("-",$this->date_of_onset);
+		$ymd = explode("-",$this->date_of_onset);
 		return $ymd[1];
 	}
 	
 	function set_date_of_onset_m($month) {
 		if (is_numeric($month)) {
-			$ymd = split("-",$this->date_of_onset);
+			$ymd = explode("-",$this->date_of_onset);
 			$ymd[1] = $month;
 			$this->date_of_onset = $ymd[0] ."-" . $ymd[1] ."-" . $ymd[2];
 		}
 	}
 	
 	function get_date_of_onset_d() {
-		$ymd = split("-",$this->date_of_onset);
+		$ymd = explode("-",$this->date_of_onset);
 		return $ymd[2];
 	}
 	
 	function set_date_of_onset_d($day) {
 		if (is_numeric($day)) {
-			$ymd = split("-",$this->date_of_onset);
+			$ymd = explode("-",$this->date_of_onset);
 			$ymd[2] = $day;
 			$this->date_of_onset = $ymd[0] ."-" . $ymd[1] ."-" . $ymd[2];
 		}
@@ -318,7 +318,7 @@ class FormHpTjePrimary extends ORDataObject {
 			sqlQuery($sql);
 			foreach ($this->checks as $check) {
 				if (!empty($check)) {
-					$sql = "INSERT INTO form_hp_tje_checks set foreign_id='"  . mysql_real_escape_string($this->id) . "', name = '" . mysql_real_escape_string($check) . "'";
+					$sql = "INSERT INTO form_hp_tje_checks set foreign_id='"  . add_escape_custom($this->id) . "', name = '" . add_escape_custom($check) . "'";
 					sqlQuery($sql);
 					//echo "$sql<br>";
 				}
@@ -329,12 +329,12 @@ class FormHpTjePrimary extends ORDataObject {
 			sqlQuery($sql);
 			foreach ($this->history as $history) {
 				if (!empty($history)) {
-					$sql = "INSERT INTO form_hp_tje_history set foreign_id='"  . mysql_real_escape_string($this->id) ."'"
-					. ", doctor = '" . mysql_real_escape_string($history['doctor']) . "'"
-					. ", specialty = '" . mysql_real_escape_string($history['specialty']) . "'"
-					. ", tx_rendered = '" . mysql_real_escape_string($history['tx_rendered']) . "'"
-					. ", effectiveness = '" . mysql_real_escape_string($history['effectiveness']) . "'"
-					. ", date = '" . mysql_real_escape_string($history['date']) . "'";
+					$sql = "INSERT INTO form_hp_tje_history set foreign_id='"  . add_escape_custom($this->id) ."'"
+					. ", doctor = '" . add_escape_custom($history['doctor']) . "'"
+					. ", specialty = '" . add_escape_custom($history['specialty']) . "'"
+					. ", tx_rendered = '" . add_escape_custom($history['tx_rendered']) . "'"
+					. ", effectiveness = '" . add_escape_custom($history['effectiveness']) . "'"
+					. ", date = '" . add_escape_custom($history['date']) . "'";
 					sqlQuery($sql);
 					//echo "$sql<br>";
 				}
@@ -347,10 +347,10 @@ class FormHpTjePrimary extends ORDataObject {
 			
 			foreach ($this->previous_accidents as $pa) {
 				if (!empty($pa)) {
-					$sql = "INSERT INTO form_hp_tje_previous_accidents set foreign_id='"  . mysql_real_escape_string($this->id) . 
-					"', nature_of_accident = '" . mysql_real_escape_string($pa['nature_of_accident']) . "'"
-					. ", injuries = '" . mysql_real_escape_string($pa['injuries']) . "'"
-					. ", date = '" . mysql_real_escape_string($pa['date']) . "'";
+					$sql = "INSERT INTO form_hp_tje_previous_accidents set foreign_id='"  . add_escape_custom($this->id) .
+					"', nature_of_accident = '" . add_escape_custom($pa['nature_of_accident']) . "'"
+					. ", injuries = '" . add_escape_custom($pa['injuries']) . "'"
+					. ", date = '" . add_escape_custom($pa['date']) . "'";
 					
 					sqlQuery($sql);
 					//echo "$sql<br>";

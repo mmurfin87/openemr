@@ -88,15 +88,11 @@ $ires = sqlStatement("SELECT id, type, title, begdate FROM lists WHERE " .
 
  function saveClicked() {
   var f = document.forms[0];
-
-<?php if (!$GLOBALS['athletic_team']) { ?>
   var category = document.forms[0].pc_catid.value;
   if ( category == '_blank' ) {
    alert("<?php echo xls('You must select a visit category'); ?>");
    return;
   }
-<?php } ?>
-
   top.restoreSession();
   f.submit();
  }
@@ -137,10 +133,10 @@ function cancelClicked() {
 <!-- Required for the popup date selectors -->
 <div id="overDiv" style="position:absolute; visibility:hidden; z-index:1000;"></div>
 
-<form method='post' action="<?php echo $rootdir ?>/forms/newpatient/save.php" name='new_encounter'
+<form id="new-encounter-form" method='post' action="<?php echo $rootdir ?>/forms/newpatient/save.php" name='new_encounter'
  <?php if (!$GLOBALS['concurrent_layout']) echo "target='Main'"; ?>>
 
-<div style = 'float:left'>
+<div style='float:left'>
 <?php if ($viewmode) { ?>
 <input type=hidden name='mode' value='update'>
 <input type=hidden name='id' value='<?php echo (isset($_GET["id"])) ? attr($_GET["id"]) : '' ?>'>
@@ -182,14 +178,14 @@ function cancelClicked() {
   <td width='34%' rowspan='2' align='center' valign='center' class='text'>
    <table>
 
-    <tr<?php if ($GLOBALS['athletic_team']) echo " style='visibility:hidden;'"; ?>>
+    <tr>
      <td class='bold' nowrap><?php echo xlt('Visit Category:'); ?></td>
      <td class='text'>
       <select name='pc_catid' id='pc_catid'>
 	<option value='_blank'>-- <?php echo xlt('Select One'); ?> --</option>
 <?php
  $cres = sqlStatement("SELECT pc_catid, pc_catname " .
-  "FROM openemr_postcalendar_categories ORDER BY pc_catname");
+  "FROM openemr_postcalendar_categories where pc_active = 1 ORDER BY pc_seq ");
  while ($crow = sqlFetchArray($cres)) {
   $catid = $crow['pc_catid'];
   if ($catid < 9 && $catid != 5) continue;
@@ -295,7 +291,7 @@ if ($fres) {
      </td>
     </tr>
 
-    <tr<?php if ($GLOBALS['ippf_specific'] || $GLOBALS['athletic_team']) echo " style='visibility:hidden;'"; ?>>
+    <tr<?php if ($GLOBALS['ippf_specific']) echo " style='visibility:hidden;'"; ?>>
      <td class='bold' nowrap><?php echo xlt('Onset/hosp. date:'); ?></td>
      <td class='text' nowrap><!-- default is blank so that while generating claim the date is blank. -->
       <input type='text' size='10' name='form_onset_date' id='form_onset_date'
@@ -307,18 +303,10 @@ if ($fres) {
         title='<?php echo xla('Click here to choose a date'); ?>'>
      </td>
     </tr>
-
-    <tr>
+	<tr>
      <td class='text' colspan='2' style='padding-top:1em'>
-<?php if ($GLOBALS['athletic_team']) { ?>
-      <p><i>Click [Add Issue] to add a new issue if:<br />
-      New injury likely to miss &gt; 1 day<br />
-      New significant illness/medical<br />
-      New allergy - only if nil exist</i></p>
-<?php } ?>
-     </td>
-    </tr>
-
+	 </td>
+    </tr> 
    </table>
 
   </td>
@@ -328,13 +316,8 @@ if ($fres) {
    <?php echo xlt('Issues (Injuries/Medical/Allergy)'); ?>
     </div>
     <div style='float:left;margin-left:8px;margin-top:-3px'>
-<?php if ($GLOBALS['athletic_team']) { // they want the old-style popup window ?>
-      <a href="#" class="css_button_small link_submit"
-       onclick="return newissue()"><span><?php echo xlt('Add'); ?></span></a>
-<?php } else { ?>
       <a href="../../patient_file/summary/add_edit_issue.php" class="css_button_small link_submit iframe"
        onclick="top.restoreSession()"><span><?php echo xlt('Add'); ?></span></a>
-<?php } ?>
     </div>
   </td>
  </tr>

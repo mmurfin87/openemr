@@ -1,5 +1,5 @@
 <?php
-// Copyright (C) 2006-2010 Rod Roark <rod@sunsetsystems.com>
+// Copyright (C) 2006-2015 Rod Roark <rod@sunsetsystems.com>
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -23,7 +23,6 @@ require_once("$srcdir/options.inc.php");
 require_once("$srcdir/encounter_events.inc.php");
 $pid = $_REQUEST['hidden_patient_code'] > 0 ? $_REQUEST['hidden_patient_code'] : $pid;
 
-$INTEGRATED_AR = $GLOBALS['oer_config']['ws_accounting']['enabled'] === 2;
 ?>
 <html>
 <head>
@@ -116,7 +115,6 @@ $now = time();
 $today = date('Y-m-d', $now);
 $timestamp = date('Y-m-d H:i:s', $now);
 
-if (!$INTEGRATED_AR) slInitialize();
 
 // $patdata = getPatientData($pid, 'fname,lname,pubpid');
 
@@ -192,15 +190,18 @@ if ($_POST['form_save']) {
 //----------------------------------------------------------------------------------------------------
 			if($_REQUEST['radio_type_of_payment']=='copay')//copay saving to ar_session and ar_activity tables
 			 {
-				$session_id=idSqlStatement("INSERT INTO ar_session (payer_id,user_id,reference,check_date,deposit_date,pay_total,".
+				$session_id=sqlInsert("INSERT INTO ar_session (payer_id,user_id,reference,check_date,deposit_date,pay_total,".
 				 " global_amount,payment_type,description,patient_id,payment_method,adjustment_code,post_to_date) ".
 				 " VALUES ('0',?,?,now(),now(),?,'','patient','COPAY',?,?,'patient_payment',now())",
 				 array($_SESSION['authId'],$form_source,$amount,$form_pid,$form_method));
-				 
-				  $insrt_id=idSqlStatement("INSERT INTO ar_activity (pid,encounter,code_type,code,modifier,payer_type,post_time,post_user,session_id,pay_amount,account_code)".
-				   " VALUES (?,?,?,?,?,0,now(),?,?,?,'PCP')",
-					 array($form_pid,$enc,$Codetype,$Code,$Modifier,$_SESSION['authId'],$session_id,$amount));
-				   
+
+                 sqlBeginTrans();
+                 $sequence_no = sqlQuery( "SELECT IFNULL(MAX(sequence_no),0) + 1 AS increment FROM ar_activity WHERE pid = ? AND encounter = ?", array($form_pid, $enc));
+				  $insrt_id=sqlInsert("INSERT INTO ar_activity (pid,encounter,sequence_no,code_type,code,modifier,payer_type,post_time,post_user,session_id,pay_amount,account_code)".
+				   " VALUES (?,?,?,?,?,?,0,now(),?,?,?,'PCP')",
+					 array($form_pid,$enc,$sequence_no['increment'],$Codetype,$Code,$Modifier,$_SESSION['authId'],$session_id,$amount));
+				 sqlCommitTrans();
+
 				 frontPayment($form_pid, $enc, $form_method, $form_source, $amount, 0, $timestamp);//insertion to 'payments' table.
 			 }
 			if($_REQUEST['radio_type_of_payment']=='invoice_balance' || $_REQUEST['radio_type_of_payment']=='cash')
@@ -280,9 +281,12 @@ if ($_POST['form_save']) {
 								$insert_value=$amount;
 								$amount=0;
 						   }
+                          sqlBeginTrans();
+                          $sequence_no = sqlQuery( "SELECT IFNULL(MAX(sequence_no),0) + 1 AS increment FROM ar_activity WHERE pid = ? AND encounter = ?", array($form_pid, $enc));
 						  sqlStatement("insert into ar_activity set "    .
 							"pid = ?"       .
 							", encounter = ?"     .
+							", sequence_no = ?"     .
                                                         ", code_type = ?"      .
 							", code = ?"      .
 							", modifier = ?"      .
@@ -293,14 +297,18 @@ if ($_POST['form_save']) {
 							", pay_amount = ?" .
 							", adj_amount = ?"    .
 							", account_code = 'PP'",
-							array($form_pid,$enc,$Codetype,$Code,$Modifier,0,$_SESSION['authUserID'],$payment_id,$insert_value,0));
+							array($form_pid,$enc,$sequence_no['increment'],$Codetype,$Code,$Modifier,0,$_SESSION['authUserID'],$payment_id,$insert_value,0));
+                            sqlCommitTrans();
 						 }//if
 					  }//while
 					 if($amount!=0)//if any excess is there.
 					  {
-						  sqlStatement("insert into ar_activity set "    .
+                          sqlBeginTrans();
+                          $sequence_no = sqlQuery( "SELECT IFNULL(MAX(sequence_no),0) + 1 AS increment FROM ar_activity WHERE pid = ? AND encounter = ?", array($form_pid, $enc));
+                          sqlStatement("insert into ar_activity set "    .
 							"pid = ?"       .
 							", encounter = ?"     .
+							", sequence_no = ?"     .
                                                         ", code_type = ?"      .
 							", code = ?"      .
 							", modifier = ?"      .
@@ -311,7 +319,8 @@ if ($_POST['form_save']) {
 							", pay_amount = ?" .
 							", adj_amount = ?"    .
 							", account_code = 'PP'",
-							array($form_pid,$enc,$Codetype,$Code,$Modifier,0,$_SESSION['authUserID'],$payment_id,$amount,0));
+							array($form_pid,$enc,$sequence_no['increment'],$Codetype,$Code,$Modifier,0,$_SESSION['authUserID'],$payment_id,$amount,0));
+                          sqlCommitTrans();
 					  }
 
 	//--------------------------------------------------------------------------------------------------------------------
@@ -364,18 +373,23 @@ if ($_POST['form_save'] || $_REQUEST['receipt']) {
 ?>
 
 <title><?php echo xlt('Receipt for Payment'); ?></title>
+<script type="text/javascript" src="<?php echo $GLOBALS['webroot'] ?>/library/js/jquery.js"></script>
 <script type="text/javascript" src="../../library/dialog.js"></script>
 <script language="JavaScript">
 
 <?php require($GLOBALS['srcdir'] . "/restoreSession.php"); ?>
 
- // Process click on Print button.
- function printme() {
+$(document).ready(function() {
+ var win = top.printLogSetup ? top : opener.top;
+ win.printLogSetup(document.getElementById('printbutton'));
+});
+
+ // This is action to take before printing and is called from restoreSession.php.
+ function printlog_before_print() {
   var divstyle = document.getElementById('hideonprint').style;
   divstyle.display = 'none';
-  window.print();
-  // divstyle.display = 'block';
  }
+
  // Process click on Delete button.
  function deleteme() {
   dlgopen('deleter.php?payment=<?php echo $payment_key ?>', '_blank', 500, 450);
@@ -453,7 +467,7 @@ if ($_POST['form_save'] || $_REQUEST['receipt']) {
 
 <div id='hideonprint'>
 <p>
-<input type='button' value='<?php echo xla('Print'); ?>' onclick='printme()' />
+<input type='button' value='<?php echo xla('Print'); ?>' id='printbutton' />
 
 <?php
   $todaysenc = todaysEncounterIf($pid);
@@ -1149,59 +1163,6 @@ function make_insurance()
   }
 
 
-  // Now list previously billed visits.
-
-  if ($INTEGRATED_AR) {
-
- } // end $INTEGRATED_AR
-  else {
-    // Query for all open invoices.
-    $query = "SELECT ar.id, ar.invnumber, ar.amount, ar.paid, " .
-      "ar.intnotes, ar.notes, ar.shipvia, " .
-      "(SELECT SUM(invoice.sellprice * invoice.qty) FROM invoice WHERE " .
-      "invoice.trans_id = ar.id AND invoice.sellprice > 0) AS charges, " .
-      "(SELECT SUM(invoice.sellprice * invoice.qty) FROM invoice WHERE " .
-      "invoice.trans_id = ar.id AND invoice.sellprice < 0) AS adjustments, " .
-      "(SELECT SUM(acc_trans.amount) FROM acc_trans WHERE " .
-      "acc_trans.trans_id = ar.id AND acc_trans.chart_id = ? " .
-      "AND acc_trans.source NOT LIKE 'Ins%') AS ptpayments " .
-      "FROM ar WHERE ar.invnumber LIKE ? AND " .
-      "ar.amount != ar.paid " .
-      "ORDER BY ar.invnumber";
-    $ires = SLQuery($query, array($chart_id_cash,$pid."%") );
-    if ($sl_err) die($sl_err);
-    $num_invoices = SLRowCount($ires);
-
-    for ($ix = 0; $ix < $num_invoices; ++$ix) {
-      $irow = SLGetRow($ires, $ix);
-
-      // Get encounter ID and date of service.
-      list($patient_id, $enc) = explode(".", $irow['invnumber']);
-      $tmp = sqlQuery("SELECT LEFT(date, 10) AS encdate FROM form_encounter " .
-        "WHERE encounter = ?", array($enc) );
-      $svcdate = $tmp['encdate'];
-
-      // Compute $duncount as in sl_eob_search.php to determine if
-      // this invoice is at patient responsibility.
-      $duncount = substr_count(strtolower($irow['intnotes']), "statement sent");
-      if (! $duncount) {
-        $insgot = strtolower($irow['notes']);
-        $inseobs = strtolower($irow['shipvia']);
-        foreach (array('ins1', 'ins2', 'ins3') as $value) {
-          if (strpos($insgot, $value) !== false &&
-              strpos($inseobs, $value) === false)
-            --$duncount;
-        }
-      }
-
-      $inspaid = $irow['paid'] + $irow['ptpayments'] - $irow['adjustments'];
-      $balance = $irow['amount'] - $irow['paid'];
-      $duept  = ($duncount < 0) ? 0 : $balance;
-
-      echoLine("form_bpay[$enc]", $svcdate, $irow['charges'],
-        0 - $irow['ptpayments'], $inspaid, $duept);
-    }
-  } // end not $INTEGRATED_AR
 
   // Continue with display of the data entry form.
 ?>
@@ -1242,6 +1203,5 @@ function make_insurance()
 
 <?php
 }
-if (!$INTEGRATED_AR) SLClose();
 ?>
 </html>

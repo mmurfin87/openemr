@@ -36,6 +36,10 @@ $rule = $viewBean->rule ?>
         <p><b><?php echo out( xl( $rule->title ) ); ?></b>
         (<?php echo implode_funcs( ", ", $rule->getRuleTypeLabels(), array( 'xl', 'out' ) ); ?>)
         </p>
+        <p><?php echo out( xl( 'Developer' ) ); ?><b>:</b>&nbsp;<?php echo out( $rule->developer ); ?></p>
+        <p><?php echo out( xl( 'Funding Source' ) ); ?><b>:</b>&nbsp;<?php echo out( $rule->funding_source ); ?></p>
+        <p><?php echo out( xl( 'Release' ) ); ?><b>:</b>&nbsp;<?php echo out( $rule->release ); ?></p>
+        <p><?php echo out( xl( 'Web Reference' ) ); ?><b>:</b>&nbsp;<?php echo out( $rule->web_ref ); ?></p>
     </div>
 
     <!--                    -->

@@ -43,7 +43,7 @@ function postcalendar_adminapi_buildHourSelect($args)
         $hour = $time24hours ? date('H') : date('h'); 
     }
     
-    $output =& new pnHTML();
+    $output = new pnHTML();
     $output->SetInputMode(_PNH_VERBATIMINPUT);
     
     $options = array();
@@ -102,7 +102,7 @@ function postcalendar_adminapi_getAdminListEvents($args)
 function postcalendar_adminapi_buildAdminList($args) 
 {
 	extract($args);
-	$output =& new pnHTML();
+	$output = new pnHTML();
 	$output->SetInputMode(_PNH_VERBATIMINPUT);
 	pnThemeLoad(pnUserGetTheme());
     // get the theme globals :: is there a better way to do this?
@@ -224,7 +224,7 @@ function postcalendar_adminapi_buildMinSelect($args)
         $min = date('i'); 
     }
     
-    $output =& new pnHTML();
+    $output = new pnHTML();
     $output->SetInputMode(_PNH_VERBATIMINPUT);
     
     $options = array();
@@ -242,7 +242,7 @@ function postcalendar_adminapi_buildAMPMSelect($args)
 {   
     extract($args);
     
-    $output =& new pnHTML();
+    $output = new pnHTML();
     $output->SetInputMode(_PNH_VERBATIMINPUT);
     
     $options = array();
@@ -262,7 +262,7 @@ function postcalendar_adminapi_buildAMPMSelect($args)
 }
 
 function postcalendar_adminapi_waiting($args) 
-{   $output =& new pnHTML();
+{   $output = new pnHTML();
     $output = "waiting<br />";
     return $output->GetOutput();
 }
@@ -317,16 +317,18 @@ function postcalendar_adminapi_addCategories($args)
     $end_date_type = pnVarPrepForStore($end_date_type);
     $end_date_freq = pnVarPrepForStore($end_date_freq);
     $end_all_day = pnVarPrepForStore($end_all_day);
+    $active = pnVarPrepForStore($active);
+    $sequence = pnVarPrepForStore($sequence);
     
     $sql = "INSERT INTO $pntable[postcalendar_categories] 
                                 (pc_catid,pc_catname,pc_catdesc,pc_catcolor,
                                 pc_recurrtype,pc_recurrspec,pc_recurrfreq,pc_duration,
     							pc_dailylimit,pc_end_date_flag,pc_end_date_type,
-    							pc_end_date_freq,pc_end_all_day,pc_cattype)
+    							pc_end_date_freq,pc_end_all_day,pc_cattype,pc_active,pc_seq)
                                 VALUES ('','$name','$desc','$color',
                                 '$recurrtype','$recurrspec','$recurrfreq',
                                 '$duration','$limitid','$end_date_flag','$end_date_type',
-                                '$end_date_freq','$end_all_day','$value_cat_type')";
+                                '$end_date_freq','$end_all_day','$value_cat_type',$active,$sequence)";
                                 
                                 
     //print "sql is $sql \n";

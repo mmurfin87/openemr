@@ -33,7 +33,7 @@ $form_name = "note";
 if ($_GET['id'] != "") $obj = formFetch("form_".$form_name, $_GET["id"]);
 /* remove the time-of-day from the date fields */
 if ($obj['date_of_signature'] != "") {
-    $dateparts = split(" ", $obj['date_of_signature']);
+    $dateparts = explode(" ", $obj['date_of_signature']);
     $obj['date_of_signature'] = $dateparts[0];
 }
 ?>
@@ -70,7 +70,7 @@ function PrintForm() {
 <div style="margin: 10px;">
 <input type="button" class="save" value="    <?php echo xla('Save'); ?>    "> &nbsp; 
 <input type="button" class="dontsave" value="<?php echo xla('Don\'t Save'); ?>"> &nbsp; 
-<input type="button" class="printform" value="<?php echo xla('Print'); ?>"> &nbsp; 
+<input type="button" class="printform" value="<?php echo xla('View Printable Version'); ?>"> &nbsp; 
 </div>
 
 <select name="note_type">
@@ -101,7 +101,7 @@ function PrintForm() {
 <div style="margin: 10px;">
 <input type="button" class="save" value="    <?php echo xla('Save'); ?>    "> &nbsp; 
 <input type="button" class="dontsave" value="<?php echo xla('Don\'t Save'); ?>"> &nbsp; 
-<input type="button" class="printform" value="<?php echo xla('Print'); ?>"> &nbsp; 
+<input type="button" class="printform" value="<?php echo xla('View Printable Version'); ?>"> &nbsp; 
 </div>
 
 </form>

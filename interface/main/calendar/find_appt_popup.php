@@ -1,17 +1,39 @@
 <?php
- // Copyright (C) 2005-2013 Rod Roark <rod@sunsetsystems.com>
- //
- // This program is free software; you can redistribute it and/or
- // modify it under the terms of the GNU General Public License
- // as published by the Free Software Foundation; either version 2
- // of the License, or (at your option) any later version.
+/**
+ *
+ * Script to find open appointmnent slots
+ *
+ * Copyright (C) 2005-2013 Rod Roark <rod@sunsetsystems.com>
+ *
+ * LICENSE: This program is free software; you can redistribute it and/or 
+ * modify it under the terms of the GNU General Public License 
+ * as published by the Free Software Foundation; either version 3 
+ * of the License, or (at your option) any later version. 
+ * This program is distributed in the hope that it will be useful, 
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of 
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the 
+ * GNU General Public License for more details. 
+ * You should have received a copy of the GNU General Public License 
+ * along with this program. If not, see <http://opensource.org/licenses/gpl-license.php>;.
+ *
+ * @package OpenEMR
+ * @author Rod Roark <rod@sunsetsystems.com>
+ * @author Ian Jardine ( github.com/epsdky )
+ * @author Roberto Vasquez <robertogagliotta@gmail.com>
+ * @link http://www.open-emr.org
+*/
+
+ $fake_register_globals=false;
+ $sanitize_all_escapes=true;
 
  include_once("../../globals.php");
  include_once("$srcdir/patient.inc");
+ ///////
+ require_once(dirname(__FILE__)."/../../../library/appointments.inc.php");
 
  // check access controls
  if (!acl_check('patients','appt','',array('write','wsome') ))
-  die(xl('Access not allowed'));
+  die(xlt('Access not allowed'));
 
  // If the caller is updating an existing event, then get its ID so
  // we don't count it as a reserved time slot.
@@ -56,7 +78,7 @@
 
  $catslots = 1;
  if ($input_catid) {
-  $srow = sqlQuery("SELECT pc_duration FROM openemr_postcalendar_categories WHERE pc_catid = '$input_catid'");
+  $srow = sqlQuery("SELECT pc_duration FROM openemr_postcalendar_categories WHERE pc_catid = ?", array($input_catid) );
   if ($srow['pc_duration']) $catslots = ceil($srow['pc_duration'] / $slotsecs);
  }
 
@@ -85,7 +107,7 @@
  $slotbase  = (int) ($slotstime / $slotsecs);
  $slotcount = (int) ($slotetime / $slotsecs) - $slotbase;
 
- if ($slotcount <= 0 || $slotcount > 100000) die("Invalid date range.");
+ if ($slotcount <= 0 || $slotcount > 100000) die(xlt("Invalid date range"));
 
  $slotsperday = (int) (60 * 60 * 24 / $slotsecs);
 
@@ -110,115 +132,35 @@
   //
   $slots = array_pad(array(), $slotcount, 0);
 
+  $sqlBindArray = array();
+
   // Note there is no need to sort the query results.
   $query = "SELECT pc_eventDate, pc_endDate, pc_startTime, pc_duration, " .
    "pc_recurrtype, pc_recurrspec, pc_alldayevent, pc_catid, pc_prefcatid " .
    "FROM openemr_postcalendar_events " .
-   "WHERE pc_aid = '$providerid' AND " .
-   "pc_eid != '$eid' AND " .
-   "((pc_endDate >= '$sdate' AND pc_eventDate < '$edate') OR " .
-   "(pc_endDate = '0000-00-00' AND pc_eventDate >= '$sdate' AND pc_eventDate < '$edate'))";
+   "WHERE pc_aid = ? AND " .
+   "pc_eid != ? AND " .
+   "((pc_endDate >= ? AND pc_eventDate < ? ) OR " .
+   "(pc_endDate = '0000-00-00' AND pc_eventDate >= ? AND pc_eventDate < ?))";
+
+   array_push($sqlBindArray, $providerid, $eid, $sdate, $edate, $sdate, $edate);
+
   // phyaura whimmel facility filtering
   if ($_REQUEST['facility'] > 0 ) {
     $facility = $_REQUEST['facility'];
-    $query .= " AND pc_facility = $facility";
+    $query .= " AND pc_facility = ?";
+    array_push($sqlBindArray, $facility);
   }
   // end facility filtering whimmel 29apr08
-  $res = sqlStatement($query);
 
-  while ($row = sqlFetchArray($res)) {
-   $thistime = strtotime($row['pc_eventDate'] . " 00:00:00");
-   if ($row['pc_recurrtype']) {
-
-    preg_match('/"event_repeat_freq_type";s:1:"(\d)"/', $row['pc_recurrspec'], $matches);
-    $repeattype = $matches[1];
-
-    preg_match('/"event_repeat_freq";s:1:"(\d)"/', $row['pc_recurrspec'], $matches);
-    $repeatfreq = $matches[1];
-    if ($row['pc_recurrtype'] == 2) {
-     // Repeat type is 2 so frequency comes from event_repeat_on_freq.
-     preg_match('/"event_repeat_on_freq";s:1:"(\d)"/', $row['pc_recurrspec'], $matches);
-     $repeatfreq = $matches[1];
-    }
-    if (! $repeatfreq) $repeatfreq = 1;
-
-    preg_match('/"event_repeat_on_num";s:1:"(\d)"/', $row['pc_recurrspec'], $matches);
-    $my_repeat_on_num = $matches[1];
-
-    preg_match('/"event_repeat_on_day";s:1:"(\d)"/', $row['pc_recurrspec'], $matches);
-    $my_repeat_on_day = $matches[1];
-
-    // This gets an array of exception dates for the event.
-    $exdates = array();
-    if (preg_match('/"exdate";s:\d+:"([0-9,]*)"/', $row['pc_recurrspec'], $matches)) {
-      $exdates = explode(",", $matches[1]);
-    }
-
-    $endtime = strtotime($row['pc_endDate'] . " 00:00:00") + (24 * 60 * 60);
-    if ($endtime > $slotetime) $endtime = $slotetime;
-
-    $repeatix = 0;
-    while ($thistime < $endtime) {
-     $adate = getdate($thistime);
-     $thisymd = sprintf('%04d%02d%02d', $adate['year'], $adate['mon'], $adate['mday']);
-
-     // Skip the event if a repeat frequency > 1 was specified and this is
-     // not the desired occurrence, or if this date is in the exception array.
-     if (!$repeatix && !in_array($thisymd, $exdates)) {
-      doOneDay($row['pc_catid'], $thistime, $row['pc_startTime'],
-       $row['pc_duration'], $row['pc_prefcatid']);
-     }
-     if (++$repeatix >= $repeatfreq) $repeatix = 0;
-
-     if ($row['pc_recurrtype'] == 2) {
-      // Need to skip to nth or last weekday of the next month.
-      $adate['mon'] += 1;
-      if ($adate['mon'] > 12) {
-       $adate['year'] += 1;
-       $adate['mon'] -= 12;
-      }
-      if ($my_repeat_on_num < 5) { // not last
-       $adate['mday'] = 1;
-       $dow = jddayofweek(cal_to_jd(CAL_GREGORIAN, $adate['mon'], $adate['mday'], $adate['year']));
-       if ($dow > $my_repeat_on_day) $dow -= 7;
-       $adate['mday'] += ($my_repeat_on_num - 1) * 7 + $my_repeat_on_day - $dow;
-      }
-      else { // last weekday of month
-       $adate['mday'] = cal_days_in_month(CAL_GREGORIAN, $adate['mon'], $adate['year']);
-       $dow = jddayofweek(cal_to_jd(CAL_GREGORIAN, $adate['mon'], $adate['mday'], $adate['year']));
-       if ($dow < $my_repeat_on_day) $dow += 7;
-       $adate['mday'] += $my_repeat_on_day - $dow;
-      }
-     } // end recurrtype 2
-
-     else { // recurrtype 1
-      if ($repeattype == 0)        { // daily
-       $adate['mday'] += 1;
-      } else if ($repeattype == 1) { // weekly
-       $adate['mday'] += 7;
-      } else if ($repeattype == 2) { // monthly
-       $adate['mon'] += 1;
-      } else if ($repeattype == 3) { // yearly
-       $adate['year'] += 1;
-      } else if ($repeattype == 4) { // work days
-       if ($adate['wday'] == 5)      // if friday, skip to monday
-        $adate['mday'] += 3;
-       else if ($adate['wday'] == 6) // saturday should not happen
-        $adate['mday'] += 2;
-       else
-        $adate['mday'] += 1;
-      } else {
-       die("Invalid repeat type '$repeattype'");
-      }
-     } // end recurrtype 1
-
-     $thistime = mktime(0, 0, 0, $adate['mon'], $adate['mday'], $adate['year']);
-    }
-   } else {
+  //////
+  $events2 = fetchEvents($sdate, $edate, null, null, false, 0, $sqlBindArray, $query);
+  foreach($events2 as $row) {
+    $thistime = strtotime($row['pc_eventDate'] . " 00:00:00");
     doOneDay($row['pc_catid'], $thistime, $row['pc_startTime'],
-     $row['pc_duration'], $row['pc_prefcatid']);
-   }
+             $row['pc_duration'], $row['pc_prefcatid']);
   }
+  //////
 
   // Mark all slots reserved where the provider is not in-office.
   // Actually we could do this in the display loop instead.
@@ -227,7 +169,7 @@
    if (($i % $slotsperday) == 0) $inoffice = false;
    if ($slots[$i] & 1) $inoffice = true;
    if ($slots[$i] & 2) $inoffice = false;
-   if (! $inoffice) $slots[$i] |= 4;
+   if (! $inoffice) { $slots[$i] |= 4; $prov[$i] = $i; }
   }
  }
 
@@ -241,7 +183,13 @@
   $cktime = 0 + $_REQUEST['cktime'];
   $ckindex = (int) ($cktime * 60 / $slotsecs);
   for ($j = $ckindex; $j < $ckindex + $evslots; ++$j) {
-      if ($slots[$j] >= 4) $ckavail = false;
+	  if ($slots[$j] >= 4) {
+		$ckavail = false;
+		$isProv = FALSE;
+		if(isset($prov[$j])){
+			$isProv = 'TRUE';
+		}
+	  }
   }
   if ($ckavail) {
     // The chosen appointment time is available.
@@ -262,7 +210,7 @@
 <html>
 <head>
 <?php html_header_show(); ?>
-<title><?php xl('Find Available Appointments','e'); ?></title>
+<title><?php echo xlt('Find Available Appointments'); ?></title>
 <link rel="stylesheet" href='<?php echo $css_header ?>' type='text/css'>
 
 <!-- for the pop up calendar -->
@@ -278,7 +226,7 @@
 
  function setappt(year,mon,mday,hours,minutes) {
   if (opener.closed || ! opener.setappt)
-   alert('<?php xl('The destination form was closed; I cannot act on your selection.','e'); ?>');
+   alert('<?php echo xls('The destination form was closed; I cannot act on your selection.'); ?>');
   else
    opener.setappt(year,mon,mday,hours,minutes);
   window.close();
@@ -346,18 +294,18 @@ form {
 <body class="body_top">
 
 <div id="searchCriteria">
-<form method='post' name='theform' action='find_appt_popup.php?providerid=<?php echo $providerid ?>&catid=<?php echo $input_catid ?>'>
-   <?php xl('Start date:','e'); ?>
-   <input type='text' name='startdate' id='startdate' size='10' value='<?php echo $sdate ?>'
-    title='yyyy-mm-dd starting date for search' />
+<form method='post' name='theform' action='find_appt_popup.php?providerid=<?php echo attr($providerid) ?>&catid=<?php echo attr($input_catid) ?>'>
+   <?php echo xlt('Start date:'); ?>
+   <input type='text' name='startdate' id='startdate' size='10' value='<?php echo attr($sdate) ?>'
+    title='<?php echo xla('yyyy-mm-dd starting date for search'); ?> '/>
    <img src='../../pic/show_calendar.gif' align='absbottom' width='24' height='22'
     id='img_date' border='0' alt='[?]' style='cursor:pointer'
-    title='<?php xl('Click here to choose a date','e'); ?>'>
-   <?php xl('for','e'); ?>
-   <input type='text' name='searchdays' size='3' value='<?php echo $searchdays ?>'
-    title='Number of days to search from the start date' />
-   <?php xl('days','e'); ?>&nbsp;
-   <input type='submit' value='<?php xl('Search','e'); ?>'>
+    title='<?php echo xla('Click here to choose a date'); ?>'>
+   <?php echo xlt('for'); ?>
+   <input type='text' name='searchdays' size='3' value='<?php echo attr($searchdays) ?>'
+    title='<?php echo xla('Number of days to search from the start date'); ?>' />
+   <?php echo xlt('days'); ?>&nbsp;
+   <input type='submit' value='<?php echo xla('Search'); ?>'>
 </div>
 
 <?php if (!empty($slots)) : ?>
@@ -365,8 +313,8 @@ form {
 <div id="searchResultsHeader">
 <table>
  <tr>
-  <th class="srDate"><?php xl ('Day','e'); ?></th>
-  <th class="srTimes"><?php xl ('Available Times','e'); ?></th>
+  <th class="srDate"><?php echo xlt('Day'); ?></th>
+  <th class="srTimes"><?php echo xlt('Available Times'); ?></th>
  </tr>
 </table>
 </div>
@@ -426,7 +374,7 @@ form {
         echo "</td>\n";
         echo " </tr>\n";
     } else {
-        echo " <tr><td colspan='2'> " . xl('No openings were found for this period.','e') . "</td></tr>\n";
+        echo " <tr><td colspan='2'> " . xlt('No openings were found for this period.') . "</td></tr>\n";
     }
 ?>
 </table>
@@ -451,15 +399,24 @@ $(document).ready(function(){
     //$(".event").dblclick(function() { EditEvent(this); });
 });
 
+
 <?php if (!$ckavail) { ?>
-<?php if (acl_check('patients','appt','','write')) { ?>
- if (confirm('<?php echo addslashes(xl('This appointment slot is already used, use it anyway?')); ?>')) {
-  opener.top.restoreSession();
-  opener.document.forms[0].submit();
-  window.close();
- }
-<?php } else { ?>
- alert('<?php echo addslashes(xl('This appointment slot is not available, please choose another.')); ?>');
+<?php if (acl_check('patients','appt','','write')) {
+if($isProv): ?>
+if (confirm('<?php echo xls('Provider not available, use it anyway?'); ?>')) {
+<?php else: ?>
+if (confirm('<?php echo xls('This appointment slot is already used, use it anyway?'); ?>')) {
+<?php endif; ?>
+opener.top.restoreSession();
+opener.document.forms[0].submit();
+window.close();
+}
+<?php } else {
+if($isProv): ?>
+alert('<?php echo xls('Provider not available, please choose another.'); ?>');
+<?php else: ?>
+alert('<?php echo xls('This appointment slot is already used, please choose another.'); ?>');
+<?php endif; ?>
 <?php } ?>
 <?php } ?>
 

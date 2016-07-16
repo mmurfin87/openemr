@@ -96,7 +96,7 @@ function process_commands(&$string_to_process, &$camos_return_data) {
     if (preg_match_all("/\/\*\s*replace\s*::.*?\*\//",$string_to_process, $matches)) {
       foreach($matches[0] as $val) {
         $comm = preg_replace("/(\/\*)|(\*\/)/","",$val);
-        $comm_array = split('::', $comm); //array where first element is command and rest are args
+        $comm_array = explode('::', $comm); //array where first element is command and rest are args
         $replacement_item = trim($comm_array[1]); //this is the item name to search for in the database.  easy.
         $replacement_text = '';
         $query = "SELECT content FROM form_CAMOS_item WHERE item like '".$replacement_item."'";
@@ -143,7 +143,7 @@ function process_commands(&$string_to_process, &$camos_return_data) {
   foreach($command_array as $val) {
     //process each command 
     $comm = preg_replace("/(\/\*)|(\*\/)/","",$val);
-    $comm_array = split('::', $comm); //array where first element is command and rest are args
+    $comm_array = explode('::', $comm); //array where first element is command and rest are args
     //Here is where we process particular commands
     if (trim($comm_array[0])== 'billing') {
       array_shift($comm_array); //couldn't do it in 'if' or would lose element 0 for next if
@@ -219,7 +219,7 @@ function replace($pid, $enc, $content) { //replace placeholders with values
 		"from patient_data as t1 join form_encounter as t2 on " .
 		"(t1.pid = t2.pid) " . 
 		"where t2.pid = ".$pid." and t2.encounter = ".$enc);
-	if ($results = mysql_fetch_array($query1, MYSQL_ASSOC)) {
+	if ($results = sqlFetchArray($query1)) {
 		$fname = $results['fname'];
 		$mname = $results['mname'];
 		$lname = $results['lname'];
@@ -232,7 +232,7 @@ function replace($pid, $enc, $content) { //replace placeholders with values
 	}
 	$query1 = sqlStatement("select t1.lname from users as t1 join forms as " .
 	"t2 on (t1.username like t2.user) where t2.encounter = ".$enc);
-	if ($results = mysql_fetch_array($query1, MYSQL_ASSOC)) {
+	if ($results = sqlFetchArray($query1)) {
 		$doctorname = "Dr. ".$results['lname'];
 	}
 	$ret = preg_replace(array("/patientname/i","/patientage/i","/patientgender/i","/doctorname/i"),

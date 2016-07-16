@@ -1,9 +1,9 @@
 <?php
 
-require_once(dirname(__FILE__) . "/../Smarty.class.php");
+require_once(dirname(__FILE__) . "/../Smarty/Smarty.class.php");
 require_once(dirname(__FILE__) . "/../formdata.inc.php");
 if (!defined('SMARTY_DIR')) {
-    define("SMARTY_DIR", dirname(__FILE__) . "/../");
+    define("SMARTY_DIR", dirname(__FILE__) . "/../Smarty/");
 }
 
 
@@ -13,13 +13,14 @@ class Controller extends Smarty {
        var $_state;
        var $_args = array();
 
-       function Controller() {
-               parent::Smarty();
+       function __construct() {
+               parent::__construct();
                $this->template_mod = "general";
                $this->_current_action = "";
                $this->_state = true;
                $this->compile_dir = $GLOBALS['fileroot'] . "/interface/main/calendar/modules/PostCalendar/pntemplates/compiled";
                $this->compile_check = true;
+               $this->plugins_dir = array(dirname(__FILE__) . "/../Smarty/plugins");
                $this->assign("PROCESS", "true");
                $this->assign("HEADER", "<html><head>
 <?php html_header_show();?></head><body>");
@@ -96,7 +97,7 @@ class Controller extends Smarty {
                $c_action = preg_replace("/[^A-Za-z0-9_]/","",array_pop($args));
                $args = array_reverse($args);
 
-               if(!@call_user_func(array(Controller,"i_once"),$GLOBALS['fileroot'] ."/controllers/C_" . $c_name . ".class.php")) {
+               if(!call_user_func(array(Controller,"i_once"),$GLOBALS['fileroot'] ."/controllers/C_" . $c_name . ".class.php")) {
                        echo "Unable to load controller $name\n, please check the first argument supplied in the URL and try again";
                        exit;
                }

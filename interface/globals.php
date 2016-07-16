@@ -73,10 +73,6 @@ if (preg_match("/^[^\/]/",$web_root)) {
 $GLOBALS['OE_SITES_BASE'] = "$webserver_root/sites";
 
 // The session name names a cookie stored in the browser.
-// If you modify session_name, then need to place the identical name in
-// the phpmyadmin file here: openemr/phpmyadmin/libraries/session.inc.php
-// at line 71. This was required after embedded new phpmyadmin version on
-// 05-12-2009 by Brady. Hopefully will figure out a more appropriate fix.
 // Now that restore_session() is implemented in javaScript, session IDs are
 // effectively saved in the top level browser window and there is no longer
 // any need to change the session name for different OpenEMR instances.
@@ -106,7 +102,7 @@ if (empty($_SESSION['site_id']) || !empty($_GET['site'])) {
     }
     else {
       // Main OpenEMR use
-      header('Location: ../login/login_frame.php?site='.$tmp); // Assuming in the interface/main directory
+      header('Location: ../login/login.php?site='.$tmp); // Assuming in the interface/main directory
     }
     exit;
   }
@@ -128,10 +124,12 @@ require_once(dirname(__FILE__) . "/../library/sqlconf.php");
 if (!$disable_utf8_flag) {    
  ini_set('default_charset', 'utf-8');
  $HTML_CHARSET = "UTF-8";
+ mb_internal_encoding('UTF-8');
 }
 else {
  ini_set('default_charset', 'iso-8859-1');
  $HTML_CHARSET = "ISO-8859-1";
+ mb_internal_encoding('ISO-8859-1');
 }
 
 // Root directory, relative to the webserver root:
@@ -146,6 +144,12 @@ $include_root = "$webserver_root/interface";
 // Absolute path to the location of documentroot directory for use with include statements:
 $GLOBALS['webroot'] = $web_root;
 
+// Static assets directory, relative to the webserver root.
+// (it is very likely that this path will be changed in the future))
+$GLOBALS['assets_static_relative'] = "$web_root/public/assets";
+//Composer vendor directory, absolute to the webserver root.
+$GLOBALS['vendor_dir'] = "$webserver_root/vendor";
+
 $GLOBALS['template_dir'] = $GLOBALS['fileroot'] . "/templates/";
 $GLOBALS['incdir'] = $include_root;
 // Location of the login screen file
@@ -156,7 +160,7 @@ $GLOBALS['edi_271_file_path'] = $GLOBALS['OE_SITE_DIR'] . "/edi/";
 
 // Include the translation engine. This will also call sql.inc to
 //  open the openemr mysql connection.
-include_once (dirname(__FILE__) . "/../library/translation.inc.php");
+require_once (dirname(__FILE__) . "/../library/translation.inc.php");
 
 // Include convenience functions with shorter names than "htmlspecialchars" (for security)
 require_once (dirname(__FILE__) . "/../library/htmlspecialchars.inc.php");
@@ -168,10 +172,12 @@ require_once (dirname(__FILE__) . "/../library/formdata.inc.php");
 require_once (dirname(__FILE__) . "/../library/sanitize.inc.php");
 
 // Includes functions for date internationalization
-include_once (dirname(__FILE__) . "/../library/date_functions.php");
+require_once (dirname(__FILE__) . "/../library/date_functions.php");
+
+// Includes compoaser autoload
+require_once $GLOBALS['vendor_dir'] ."/autoload.php";
 
 // Defaults for specific applications.
-$GLOBALS['athletic_team'] = false;
 $GLOBALS['weight_loss_clinic'] = false;
 $GLOBALS['ippf_specific'] = false;
 $GLOBALS['cene_specific'] = false;
@@ -202,7 +208,7 @@ if (!empty($glrow)) {
   $GLOBALS['language_menu_show'] = array();
   $glres = sqlStatement("SELECT gl_name, gl_index, gl_value FROM globals " .
     "ORDER BY gl_name, gl_index");
-  while ($glrow = sqlFetchArray($glres)) {
+  while ($glrow = sqlFetchArray($glres)) {    
     $gl_name  = $glrow['gl_name'];
     $gl_value = $glrow['gl_value'];
     // Adjust for user specific settings
@@ -213,15 +219,18 @@ if (!empty($glrow)) {
         }
       }
     }
-    if ($gl_name == 'language_menu_other') {
+    if ($gl_name == 'language_menu_other') {       
       $GLOBALS['language_menu_show'][] = $gl_value;
     }
     else if ($gl_name == 'css_header') {
-      $GLOBALS[$gl_name] = "$rootdir/themes/" . $gl_value;
+        $GLOBALS[$gl_name] = $rootdir.'/themes/'. $gl_value;
+        $temp_css_theme_name = $gl_value;
+    }
+    else if ($gl_name == 'weekend_days') {
+        $GLOBALS[$gl_name] = explode(',', $gl_value);
     }
     else if ($gl_name == 'specific_application') {
-      if      ($gl_value == '1') $GLOBALS['athletic_team'] = true;
-      else if ($gl_value == '2') $GLOBALS['ippf_specific'] = true;
+      if ($gl_value == '2') $GLOBALS['ippf_specific'] = true;
       else if ($gl_value == '3') $GLOBALS['weight_loss_clinic'] = true;
     }
     else if ($gl_name == 'inhouse_pharmacy') {
@@ -238,6 +247,46 @@ if (!empty($glrow)) {
   if ((count($GLOBALS['language_menu_show']) >= 1) || $GLOBALS['language_menu_showall']) {
     $GLOBALS['language_menu_login'] = true;
   }
+  
+  
+// Additional logic to override theme name.
+// For RTL languages we substitute the theme name with the name of RTL-adapted CSS file.
+    $rtl_override = false;
+    if( isset( $_SESSION['language_direction'] )) {
+        if( $_SESSION['language_direction'] == 'rtl' && 
+        !strpos($GLOBALS['css_header'], 'rtl')  ) {
+
+            // the $css_header_value is set above
+            $rtl_override = true;
+        }
+    }     
+    
+    else { 
+        //$_SESSION['language_direction'] is not set, so will use the default language
+        $default_lang_id = sqlQuery('SELECT lang_id FROM lang_languages WHERE lang_description = ?',array($GLOBALS['language_default']));
+        
+        if ( getLanguageDir( $default_lang_id['lang_id'] ) === 'rtl' && !strpos($GLOBALS['css_header'], 'rtl')) { // @todo eliminate 1 SQL query
+            $rtl_override = true;
+        }
+    }
+    
+
+    // change theme name, if the override file exists.
+    if( $rtl_override ) {
+        // the $css_header_value is set above
+        $new_theme = 'rtl_' . $temp_css_theme_name;
+
+        // Check file existance 
+        if( file_exists( $include_root.'/themes/'.$new_theme ) ) {
+            $GLOBALS['css_header'] = $rootdir.'/themes/'.$new_theme;
+        } else {
+            // throw a warning if rtl'ed file does not exist.
+            error_log("Missing theme file ".text($include_root).'/themes/'.text($new_theme)   );
+        }
+    }
+    unset( $temp_css_theme_name, $new_theme,$rtl_override);
+    // end of RTL section
+  
   //
   // End of globals table processing.
 }
@@ -352,10 +401,6 @@ if (!isset($ignoreAuth) || !$ignoreAuth) {
   include_once("$srcdir/auth.inc");
 }
 
-// If you do not want your accounting system to have a customer added to it
-// for each insurance company, then set this to true.  SQL-Ledger currently
-// (2005-03-21) does nothing useful with insurance companies as customers.
-$GLOBALS['insurance_companies_are_not_customers'] = true;
 
 // This is the background color to apply to form fields that are searchable.
 // Currently it is applicable only to the "Search or Add Patient" form.
@@ -364,17 +409,6 @@ $GLOBALS['layout_search_color'] = '#ffff55';
 //EMAIL SETTINGS
 $SMTP_Auth = !empty($GLOBALS['SMTP_USER']);
 
-// Customize these if you are using SQL-Ledger with OpenEMR, or if you are
-// going to run sl_convert.php to convert from SQL-Ledger.
-//
-$sl_cash_acc    = '1060';       // sql-ledger account number for checking account
-$sl_ar_acc      = '1200';       // sql-ledger account number for accounts receivable
-$sl_income_acc  = '4320';       // sql-ledger account number for medical services income
-$sl_services_id = 'MS';         // sql-ledger parts table id for medical services
-$sl_dbname      = 'sql-ledger'; // sql-ledger database name
-$sl_dbuser      = 'sql-ledger'; // sql-ledger database login name
-$sl_dbpass      = 'secret';     // sql-ledger database login password
-//////////////////////////////////////////////////////////////////
 
 //module configurations
 $GLOBALS['baseModDir'] 	= "interface/modules/"; //default path of modules

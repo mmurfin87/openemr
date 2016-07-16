@@ -7,6 +7,7 @@ use ESign\Api;
 
 require_once("../../globals.php");
 require_once("$srcdir/forms.inc");
+require_once("$srcdir/formdata.inc.php");
 require_once("$srcdir/calendar.inc");
 require_once("$srcdir/acl.inc");
 require_once("$srcdir/formatting.inc.php");
@@ -34,6 +35,7 @@ require_once("$srcdir/../controllers/C_Document.class.php");
 <script type="text/javascript" src="../../../library/js/fancybox-1.3.4/jquery.fancybox-1.3.4.js"></script>
 <script src="<?php echo $GLOBALS['webroot'] ?>/library/ESign/js/jquery.esign.js"></script>
 <link rel="stylesheet" type="text/css" href="<?php echo $GLOBALS['webroot'] ?>/library/ESign/css/esign.css" />
+
 <?php 
 $esignApi = new Api();
 ?>
@@ -48,8 +50,29 @@ if (file_exists(dirname(__FILE__) . "/../../forms/track_anything/style.css")) { 
  <link rel="stylesheet" href="<?php echo $GLOBALS['web_root']?>/interface/forms/track_anything/style.css" type="text/css">
 <?php } ?>
 
+<?php
+// If the user requested attachment of any orphaned procedure orders, do it.
+if (!empty($_GET['attachid'])) {
+  $attachid = explode(',', $_GET['attachid']);
+  foreach ($attachid as $aid) {
+    $aid = intval($aid);
+    if (!$aid) continue;
+    $tmp = sqlQuery("SELECT COUNT(*) AS count FROM procedure_order WHERE " .
+      "procedure_order_id = ? AND patient_id = ? AND encounter_id = 0 AND activity = 1",
+      array($aid, $pid));
+    if (!empty($tmp['count'])) {
+      sqlStatement("UPDATE procedure_order SET encounter_id = ? WHERE " .
+        "procedure_order_id = ? AND patient_id = ? AND encounter_id = 0 AND activity = 1",
+        array($encounter, $aid, $pid));
+      addForm($encounter, "Procedure Order", $aid, "procedure_order", $pid, $userauthorized);
+    }
+  }
+}
+?>
+
 <script type="text/javascript">
-$(document).ready( function() {
+$.noConflict();
+jQuery(document).ready( function($) {
 	var formConfig = <?php echo $esignApi->formConfigToJson(); ?>;
     $(".esign-button-form").esign( 
     	formConfig,
@@ -92,6 +115,126 @@ $(document).ready( function() {
             }
 		}
     );
+
+    $(".onerow").mouseover(function() { $(this).toggleClass("highlight"); });
+    $(".onerow").mouseout(function() { $(this).toggleClass("highlight"); });
+    $(".onerow").click(function() { GotoForm(this); });
+
+    $("#prov_edu_res").click(function() {
+        if ( $('#prov_edu_res').attr('checked') ) {
+            var mode = "add";
+        }
+        else {
+            var mode = "remove";
+        }
+        top.restoreSession();
+        $.post( "../../../library/ajax/amc_misc_data.php",
+            { amc_id: "patient_edu_amc",
+              complete: true,
+              mode: mode,
+              patient_id: <?php echo htmlspecialchars($pid,ENT_NOQUOTES); ?>,
+              object_category: "form_encounter",
+              object_id: <?php echo htmlspecialchars($encounter,ENT_NOQUOTES); ?>
+            }
+        );
+    });
+
+    $("#provide_sum_pat_flag").click(function() {
+        if ( $('#provide_sum_pat_flag').attr('checked') ) {
+            var mode = "add";
+        }
+        else {
+            var mode = "remove";
+        }
+        top.restoreSession();
+        $.post( "../../../library/ajax/amc_misc_data.php",
+            { amc_id: "provide_sum_pat_amc",
+              complete: true,
+              mode: mode,
+              patient_id: <?php echo htmlspecialchars($pid,ENT_NOQUOTES); ?>,
+              object_category: "form_encounter",
+              object_id: <?php echo htmlspecialchars($encounter,ENT_NOQUOTES); ?>
+            }
+        );
+    });
+
+    $("#trans_trand_care").click(function() {
+        if ( $('#trans_trand_care').attr('checked') ) {
+            var mode = "add";
+            // Enable the reconciliation checkbox
+            $("#med_reconc_perf").removeAttr("disabled");
+        }
+        else {
+            var mode = "remove";
+            //Disable the reconciliation checkbox (also uncheck it if applicable)
+            $("#med_reconc_perf").attr("disabled", true);
+            $("#med_reconc_perf").removeAttr("checked");
+        }
+        top.restoreSession();
+        $.post( "../../../library/ajax/amc_misc_data.php",
+            { amc_id: "med_reconc_amc",
+              complete: false,
+              mode: mode,
+              patient_id: <?php echo htmlspecialchars($pid,ENT_NOQUOTES); ?>,
+              object_category: "form_encounter",
+              object_id: <?php echo htmlspecialchars($encounter,ENT_NOQUOTES); ?>
+            }
+        );
+    });
+
+    $("#med_reconc_perf").click(function() {
+        if ( $('#med_reconc_perf').attr('checked') ) {
+            var mode = "complete";
+        }
+        else {
+            var mode = "uncomplete";
+        }
+        top.restoreSession();
+        $.post( "../../../library/ajax/amc_misc_data.php",
+            { amc_id: "med_reconc_amc",
+              complete: true,
+              mode: mode,
+              patient_id: <?php echo htmlspecialchars($pid,ENT_NOQUOTES); ?>,
+              object_category: "form_encounter",
+              object_id: <?php echo htmlspecialchars($encounter,ENT_NOQUOTES); ?>
+            }
+        );
+    });
+
+    // $(".deleteme").click(function(evt) { deleteme(); evt.stopPropogation(); });
+
+    var GotoForm = function(obj) {
+        var parts = $(obj).attr("id").split("~");
+        top.restoreSession();
+        <?php if ($GLOBALS['concurrent_layout']): ?>
+        parent.location.href = "<?php echo $rootdir; ?>/patient_file/encounter/view_form.php?formname="+parts[0]+"&id="+parts[1];
+        <?php else: ?>
+        top.Main.location.href = "<?php echo $rootdir; ?>/patient_file/encounter/view_form.php?formname="+parts[0]+"&id="+parts[1];
+        <?php endif; ?>
+    }
+
+<?php
+  // If the user was not just asked about orphaned orders, build javascript for that.
+  if (!isset($_GET['attachid'])) {
+    $ares = sqlStatement("SELECT procedure_order_id, date_ordered " .
+      "FROM procedure_order WHERE " .
+      "patient_id = ? AND encounter_id = 0 AND activity = 1 " .
+      "ORDER BY procedure_order_id",
+      array($pid));
+    echo "  // Ask about attaching orphaned orders to this encounter.\n";
+    echo "  var attachid = '';\n";
+    while ($arow = sqlFetchArray($ares)) {
+      $orderid   = $arow['procedure_order_id'];
+      $orderdate = $arow['date_ordered'];
+      echo "  if (confirm('" . xls('There is a lab order') . " $orderid " .
+        xls('dated') . " $orderdate " .
+        xls('for this patient not yet assigned to any encounter.') . " " .
+        xls('Assign it to this one?') . "')) attachid += '$orderid,';\n";
+    }
+    echo "  if (attachid) location.href = 'forms.php?attachid=' + attachid;\n";
+  }
+?>
+
 });
 
  // Process click on Delete link.
@@ -181,15 +324,12 @@ function divtoggle(spanid, divid) {
     }
 </style>
 
-</head>
 <?php
 $hide=1;
 require_once("$incdir/patient_file/encounter/new_form.php");
 ?>
-<body class="body_top">
 
 <div id="encounter_forms">
-
 
 <?php
 $dateres = getEncounterDateByEncounter($encounter);
@@ -481,125 +621,7 @@ if ( $esign->isButtonViewable() ) {
 }
 ?>
 
-<?php if ($GLOBALS['athletic_team'] && $GLOBALS['concurrent_layout'] == 2) { ?>
-<script language='JavaScript'>
- // If this is the top frame then show the encounters list in the bottom frame.
- // var n  = parent.parent.left_nav;
- var n  = top.left_nav;
- var nf = n.document.forms[0];
- if (parent.window.name == 'RTop' && nf.cb_bot.checked) {
-  var othername = 'RBot';
-  n.setRadio(othername, 'ens');
-  n.loadFrame('ens1', othername, 'patient_file/history/encounters.php');
- }
-</script>
-<?php } ?>
-
 </div> <!-- end large encounter_forms DIV -->
 </body>
-
-<script language="javascript">
-// jQuery stuff to make the page a little easier to use
-
-$(document).ready(function(){
-    $(".onerow").mouseover(function() { $(this).toggleClass("highlight"); });
-    $(".onerow").mouseout(function() { $(this).toggleClass("highlight"); });
-    $(".onerow").click(function() { GotoForm(this); });
-
-    $("#prov_edu_res").click(function() {
-        if ( $('#prov_edu_res').attr('checked') ) {
-            var mode = "add";
-        }
-        else {
-            var mode = "remove";
-        }
-        top.restoreSession();
-        $.post( "../../../library/ajax/amc_misc_data.php",
-            { amc_id: "patient_edu_amc",
-              complete: true,
-              mode: mode,
-              patient_id: <?php echo htmlspecialchars($pid,ENT_NOQUOTES); ?>,
-              object_category: "form_encounter",
-              object_id: <?php echo htmlspecialchars($encounter,ENT_NOQUOTES); ?>
-            }
-        );
-    });
-
-    $("#provide_sum_pat_flag").click(function() {
-        if ( $('#provide_sum_pat_flag').attr('checked') ) {
-            var mode = "add";
-        }
-        else {
-            var mode = "remove";
-        }
-        top.restoreSession();
-        $.post( "../../../library/ajax/amc_misc_data.php",
-            { amc_id: "provide_sum_pat_amc",
-              complete: true,
-              mode: mode,
-              patient_id: <?php echo htmlspecialchars($pid,ENT_NOQUOTES); ?>,
-              object_category: "form_encounter",
-              object_id: <?php echo htmlspecialchars($encounter,ENT_NOQUOTES); ?>
-            }
-        );
-    });
-
-    $("#trans_trand_care").click(function() {
-        if ( $('#trans_trand_care').attr('checked') ) {
-            var mode = "add";
-            // Enable the reconciliation checkbox
-            $("#med_reconc_perf").removeAttr("disabled");
-        }
-        else {
-            var mode = "remove";
-            //Disable the reconciliation checkbox (also uncheck it if applicable)
-            $("#med_reconc_perf").attr("disabled", true);
-            $("#med_reconc_perf").removeAttr("checked");
-        }
-        top.restoreSession();
-        $.post( "../../../library/ajax/amc_misc_data.php",
-            { amc_id: "med_reconc_amc",
-              complete: false,
-              mode: mode,
-              patient_id: <?php echo htmlspecialchars($pid,ENT_NOQUOTES); ?>,
-              object_category: "form_encounter",
-              object_id: <?php echo htmlspecialchars($encounter,ENT_NOQUOTES); ?>
-            }
-        );
-    });
-
-    $("#med_reconc_perf").click(function() {
-        if ( $('#med_reconc_perf').attr('checked') ) {
-            var mode = "complete";
-        }
-        else {
-            var mode = "uncomplete";
-        }
-        top.restoreSession();
-        $.post( "../../../library/ajax/amc_misc_data.php",
-            { amc_id: "med_reconc_amc",
-              complete: true,
-              mode: mode,
-              patient_id: <?php echo htmlspecialchars($pid,ENT_NOQUOTES); ?>,
-              object_category: "form_encounter",
-              object_id: <?php echo htmlspecialchars($encounter,ENT_NOQUOTES); ?>
-            }
-        );
-    });
-
-    // $(".deleteme").click(function(evt) { deleteme(); evt.stopPropogation(); });
-
-    var GotoForm = function(obj) {
-        var parts = $(obj).attr("id").split("~");
-        top.restoreSession();
-        <?php if ($GLOBALS['concurrent_layout']): ?>
-        parent.location.href = "<?php echo $rootdir; ?>/patient_file/encounter/view_form.php?formname="+parts[0]+"&id="+parts[1];
-        <?php else: ?>
-        top.Main.location.href = "<?php echo $rootdir; ?>/patient_file/encounter/view_form.php?formname="+parts[0]+"&id="+parts[1];
-        <?php endif; ?>
-    }
-});
-
-</script>
 
 </html>

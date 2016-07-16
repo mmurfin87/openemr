@@ -9,8 +9,8 @@ class C_PatientFinder extends Controller {
 	var $template_mod;
 	var $_db;
 	
-	function C_PatientFinder($template_mod = "general") {
-		parent::Controller();
+	function __construct($template_mod = "general") {
+		parent::__construct();
 		$this->_db = $GLOBALS['adodb']['db']; 
 		$this->template_mod = $template_mod;
 		$this->assign("FORM_ACTION", $GLOBALS['webroot']."/controller.php?" . $_SERVER['QUERY_STRING']);
@@ -35,9 +35,9 @@ class C_PatientFinder extends Controller {
 		$isPid = false;
 		//fix any magic quotes meddling
 		
-		if (get_magic_quotes_gpc()) {$form_id = stripslashes($form_id);}
-		if (get_magic_quotes_gpc()) {$form_name = stripslashes($form_name);}
-		if (get_magic_quotes_gpc()) {$pid = stripslashes($pid);}
+		$form_id = strip_escape_custom($form_id);
+		$form_name = strip_escape_custom($form_name);
+		$pid = strip_escape_custom($pid);
 		
         //prevent javascript injection, whitespace and semi-colons are the worry
         $form_id = preg_replace("/[^A-Za-z0-9\[\]\_\']/iS","",urldecode($form_id));
@@ -100,7 +100,7 @@ class C_PatientFinder extends Controller {
 	*	@-param string $search_string parsed for last name
 	*/
 	function search_by_lName($sql, $search_string) {
-		$lName = mysql_real_escape_string($search_string);
+		$lName = add_escape_custom($search_string);
 		$sql .= " WHERE lname LIKE '$lName%' ORDER BY lname, fname";
 		//print "SQL is $sql \n";
 		$result_array = $this->_db->GetAll($sql);
@@ -115,8 +115,8 @@ class C_PatientFinder extends Controller {
 	*	@param string $search_string parsed for first name
 	*/
 	function search_by_fName($sql, $search_string) {
-		$name_array = split(",", $search_string);
-		$fName = mysql_real_escape_string( trim($name_array[1]) );
+		$name_array = explode(",", $search_string);
+		$fName = add_escape_custom( trim($name_array[1]) );
 		$sql .= " WHERE fname LIKE '$fName%' ORDER BY lname, fname";
 		$result_array = $this->_db->GetAll($sql);
 		return $result_array;
@@ -129,9 +129,9 @@ class C_PatientFinder extends Controller {
 	*	@param string $search_string parsed for first, last and middle name
 	*/
 	function search_by_FullName($sql, $search_string) {
-		$name_array = split(",", $search_string);
-		$lName = mysql_real_escape_string($name_array[0]);
-		$fName = mysql_real_escape_string( trim($name_array[1]) );
+		$name_array = explode(",", $search_string);
+		$lName = add_escape_custom($name_array[0]);
+		$fName = add_escape_custom( trim($name_array[1]) );
 		$sql .= " WHERE fname LIKE '%$fName%' AND lname LIKE '$lName%' ORDER BY lname, fname";
 		//print "SQL is $sql \n";
 		$result_array = $this->_db->GetAll($sql);

@@ -1,11 +1,27 @@
 <?php
-// Copyright (C) 2011 Ken Chapple <ken@mi-squared.com>
-//
-// This program is free software; you can redistribute it and/or
-// modify it under the terms of the GNU General Public License
-// as published by the Free Software Foundation; either version 2
-// of the License, or (at your option) any later version.
-//
+/**
+ * AbstractAmcReport class
+ *
+ * Copyright (C) 2011 Ken Chapple <ken@mi-squared.com>
+ * Copyright (C) 2015 Brady Miller <brady@sparmy.com>
+ *
+ * LICENSE: This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 3
+ * of the License, or (at your option) any later version.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://opensource.org/licenses/gpl-license.php>;.
+ *
+ * @package OpenEMR
+ * @author  Ken Chapple <ken@mi-squared.com>
+ * @author  Brady Miller <brady@sparmy.com>
+ * @link    http://www.open-emr.org
+ */
+
 require_once( 'AmcFilterIF.php' );
 require_once( dirname(__FILE__)."/../../../../clinical_rules.php" );
 require_once( dirname(__FILE__)."/../../../../amc.php" );
@@ -204,7 +220,7 @@ abstract class AbstractAmcReport implements RsReportIF
             case "transitions-out":
                 $sql = "SELECT * " .
                        "FROM `transactions` " .
-                       "WHERE `title` = 'Referral' " .
+                       "WHERE `title` = 'LBTref' " .
                        "AND `pid` = ? " .
                        "AND `date` >= ? AND `date` <= ?";
                 array_push($sqlBindArray, $patient->id, $begin, $end);
@@ -213,6 +229,14 @@ abstract class AbstractAmcReport implements RsReportIF
                 $sql = "SELECT * " .
                        "FROM `form_encounter` " .
                        "WHERE `pid` = ? " .
+                       "AND `date` >= ? AND `date` <= ?";
+                array_push($sqlBindArray, $patient->id, $begin, $end);
+                break;
+            case "encounters_office_visit":
+                $sql = "SELECT * " .
+                       "FROM `form_encounter` LEFT JOIN `enc_category_map` ON (form_encounter.pc_catid = enc_category_map.main_cat_id) " .
+                       "WHERE enc_category_map.rule_enc_id = 'enc_off_vis' " .
+                       "AND `pid` = ? " .
                        "AND `date` >= ? AND `date` <= ?";
                 array_push($sqlBindArray, $patient->id, $begin, $end);
                 break;
@@ -235,11 +259,62 @@ abstract class AbstractAmcReport implements RsReportIF
                        "procedure_report.date_collected >= ? AND procedure_report.date_collected <= ?";
                 array_push($sqlBindArray, $patient->id, $begin, $end);
                 break;
+			
+			case "lab_radiology":
+				$sql = "SELECT  IF( u.cpoe = '1', 'Yes', 'No') as cpoe_stat FROM procedure_order pr ".
+					  "INNER JOIN procedure_order_code prc ON pr.procedure_order_id = prc.procedure_order_id ".
+					  "LEFT JOIN procedure_providers pp ON pr.lab_id = pp.ppid ".
+					  "LEFT JOIN users u ON u.id = pp.lab_director ".
+					  "WHERE pr.patient_id = ? ".
+					  "AND prc.procedure_order_title LIKE '%Radiology%' ".
+					  "AND (pr.date_ordered BETWEEN ? AND ?)"; 
+				array_push($sqlBindArray, $patient->id, $begin, $end);
+                break;
+			
+			case "cpoe_lab_orders":
+				$sql = "SELECT IF( u.cpoe = '1', 'Yes', 'No') as cpoe_stat FROM procedure_order pr ".
+					  "INNER JOIN procedure_order_code prc ON pr.procedure_order_id = prc.procedure_order_id ".
+					  "LEFT JOIN procedure_providers pp ON pr.lab_id = pp.ppid ".
+					  "LEFT JOIN users u ON u.id = pp.lab_director ".
+					  "WHERE pr.patient_id = ? ".
+					  "AND prc.procedure_order_title LIKE '%Laboratory Test%' ".
+					  "AND (pr.date_ordered BETWEEN ? AND ?)"; 
+				array_push($sqlBindArray, $patient->id, $begin, $end);
+                break;
+			
+			case "med_orders":
+                        // Still TODO
+                        // AMC MU2 TODO :
+                        //  Note the cpoe_flag and functionality does not exist in OpenEMR official codebase.
+                        //
+				 $sql = "SELECT cpoe_flag as cpoe_stat " .
+                       "FROM `prescriptions` " .
+                       "WHERE `patient_id` = ? " .
+                       "AND `date_added` BETWEEN ? AND ?";
+                array_push($sqlBindArray, $patient->id, $begin, $end);
+                break;
+				
+			case "lab_orders":
+               $sql = "SELECT procedure_order_id FROM " .
+                       "procedure_order " .
+                       "WHERE " .
+                       "patient_id = ? " .
+					   "AND (date_ordered BETWEEN ? AND ?)"; 
+                array_push($sqlBindArray, $patient->id, $begin, $end);
+                break;
         }
 
         $rez = sqlStatement($sql, $sqlBindArray);
-        for($iter=0; $row=sqlFetchArray($rez); $iter++)
+        for($iter=0; $row=sqlFetchArray($rez); $iter++) {
+            if ('transitions-out' == $object_label) {
+              $fres = sqlStatement("SELECT field_id, field_value FROM lbt_data WHERE form_id = ?",
+                array($row['id']));
+              while ($frow = sqlFetchArray($fres)) {
+                $row[$frow['field_id']] = $frow['field_value'];
+              }
+            }
             $results[$iter]=$row;
+        }
 
         return $results;
     }

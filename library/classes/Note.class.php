@@ -51,9 +51,9 @@ class Note extends ORDataObject{
 	 * Constructor sets all Note attributes to their default value
 	 * @param int $id optional existing id of a specific note, if omitted a "blank" note is created 
 	 */
-	function Note($id = "")	{
+	function __construct($id = "")	{
 		//call the parent constructor so we have a _db to work with
-		parent::ORDataObject();
+		parent::__construct();
 		
 		//shore up the most basic ORDataObject bits
 		$this->id = $id;
@@ -79,7 +79,7 @@ class Note extends ORDataObject{
 			 $foreign_id= "like '%'";
 		}
 		else {
-			$foreign_id= " = '" . mysql_real_escape_string(strval($foreign_id)) . "'";
+			$foreign_id= " = '" . add_escape_custom(strval($foreign_id)) . "'";
 		}
 		
 		$d = new note();

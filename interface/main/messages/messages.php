@@ -1,14 +1,30 @@
 <?php
 /**
- * Copyright (C) 2010 OpenEMR Support LLC
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
+ * Message and Reminder Center UI
  *
  * 2013/02/08 Minor tweaks by EMR Direct to allow integration with Direct messaging
  * 2013-03-27 by sunsetsystems: Fixed some weirdness with assigning a message recipient,
  *   and allowing a message to be closed with a new note appended and no recipient.
+ *
+ * Copyright (c) 2010 OpenEMR Support LLC
+ *
+ * LICENSE: This program is free software; you can redistribute it and/or 
+ * modify it under the terms of the GNU General Public License 
+ * as published by the Free Software Foundation; either version 3 
+ * of the License, or (at your option) any later version. 
+ * This program is distributed in the hope that it will be useful, 
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of 
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the 
+ * GNU General Public License for more details. 
+ * You should have received a copy of the GNU General Public License 
+ * along with this program. If not, see <http://opensource.org/licenses/gpl-license.php>;.
+ *
+ * @package OpenEMR
+ * @author OpenEMR Support LLC
+ * @author Roberto Vasquez <robertogagliotta@gmail.com>
+ * @author Rod Roark <rod@sunsetsystems.com>
+ * @author Brady Miller <brady@sparmy.com>
+ * @link http://www.open-emr.org 
  */
 
 //SANITIZE ALL ESCAPES
@@ -196,7 +212,7 @@ if($task == "addnew" or $task == "edit") {
  // Display the Messages page layout.
 echo "
 <form name=new_note id=new_note action=\"messages.php?showall=".attr($showall)."&sortby=".attr($sortby)."&sortorder=".attr($sortorder)."&begin=".attr($begin)."&$activity_string_html\" method=post>
-<input type=hidden name=noteid id=noteid value=".htmlspecialchars( $noteid, ENT_QUOTES).">
+<input type=hidden name=noteid id=noteid value='".attr($noteid)."'>
 <input type=hidden name=task id=task value=add>";
 ?>
 <div id="pnotes"><center>
@@ -540,7 +556,7 @@ else {
             <td class=\"text\"><a href=\"messages.php?showall=".attr($showall)."&sortby=".attr($sortby)."&sortorder=".attr($sortorder)."&begin=".attr($begin)."&task=addnew&$activity_string_html\" onclick=\"top.restoreSession()\">" .
               htmlspecialchars( xl('Add New'), ENT_NOQUOTES) . "</a> &nbsp; <a href=\"javascript:confirmDeleteSelected()\" onclick=\"top.restoreSession()\">" .
               htmlspecialchars( xl('Delete'), ENT_NOQUOTES) . "</a></td>
-            <td align=right class=\"text\">$prevlink &nbsp; $end of $total &nbsp; $nextlink</td>
+            <td align=right class=\"text amount-msg\">$prevlink &nbsp; $end of $total &nbsp; $nextlink</td>
         </tr>
     </table></td></tr></table><br>";
 ?>

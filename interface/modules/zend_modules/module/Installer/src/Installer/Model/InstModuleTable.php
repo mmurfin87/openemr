@@ -62,9 +62,10 @@ class InstModuleTable
   public function installSQL($dir)
   {
     $sqltext = $dir . "/table.sql";
+    if(file_exists($sqltext)) {
     if ($sqlarray = @file($sqltext)) {
       $sql = implode("", $sqlarray);
-      $sqla = split(";", $sql);
+      $sqla = explode(";", $sql);
       $this->getInstallerTable()->testingDir($dir);
       foreach ($sqla as $sqlq) {
         if (strlen($sqlq) > 5) {
@@ -75,6 +76,9 @@ class InstModuleTable
       return true;
     } else {
       return true;
+    }
+    } else {
+      return true;  
     }
   }
   
@@ -585,7 +589,6 @@ class InstModuleTable
             foreach($depModArr as $depModule) {
               if($modDirectory == $depModule){
                 $depFlag	= "1";
-                //break(2);
                 $usedModArr[] = $InstalledmodDirectory;
               }
             }		

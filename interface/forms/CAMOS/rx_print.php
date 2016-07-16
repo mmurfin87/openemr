@@ -40,7 +40,7 @@ $sigline['signed'] =
   . "<img src='./sig.jpg'>"
   . "</div>\n";
 $query = sqlStatement("select fname,lname,street,city,state,postal_code,phone_home,DATE_FORMAT(DOB,'%m/%d/%y') as DOB from patient_data where pid =" . $_SESSION['pid']);
-if ($result = mysql_fetch_array($query, MYSQL_ASSOC)) {
+if ($result = sqlFetchArray($query)) {
   $patient_name = $result['fname'] . ' ' . $result['lname'];
   $patient_address = $result['street'];
   $patient_city = $result['city'];
@@ -67,7 +67,7 @@ if ($_POST['update']) { // OPTION update practice inf
 }
 //get user information
 $query = sqlStatement("select * from users where id =" . $_SESSION['authUserID']);
-if ($result = mysql_fetch_array($query, MYSQL_ASSOC)) {
+if ($result = sqlFetchArray($query)) {
   $physician_name = $result['fname'] . ' ' . $result['lname'] . ', ' . $result['title']; 
   $practice_fname = $result['fname'];
   $practice_lname = $result['lname'];
@@ -86,9 +86,10 @@ if ($_POST['print_pdf'] || $_POST['print_html']) {
     if (substr($key,0,3) == 'ch_') {
       $query = sqlStatement("select content from ".mitigateSqlTableUpperCase("form_CAMOS")." where id =" . 
         substr($key,3));
-      if ($result = mysql_fetch_array($query, MYSQL_ASSOC)) {
+      if ($result = sqlFetchArray($query)) {
+
   	if ($_POST['print_html']) { //do this change to formatting only for html output
-        	$content = preg_replace('|\n|','<br/>', $result['content']);
+        	$content = preg_replace('|\n|','<br/>', text($result['content']));
 	        $content = preg_replace('|<br/><br/>|','<br/>', $content);
 	} else {
 		$content = $result['content'];
@@ -100,16 +101,16 @@ if ($_POST['print_pdf'] || $_POST['print_html']) {
       $rx = new Prescription(substr($key,5));
       //$content = $rx->drug.' '.$rx->form.' '.$rx->dosage;
       $content = '' 
-      . $rx->drug . ' '
-      . $rx->size . ''
-      . $rx->unit_array[$rx->unit] . '<br/>' 
-      . $rx->quantity. ' '
-      . $rx->form_array[$rx->form]. '<br/>'
-      . $rx->dosage . ' '
-      . $rx->form_array[$rx->form]. ' '
-      . $rx->route_array[$rx->route] . ' '
-      . $rx->interval_array[$rx->interval] . '<br/>'
-      . $rx->note . '<br/>'
+      . text($rx->drug) . ' '
+      . text($rx->size) . ''
+      . text($rx->unit_array[$rx->unit]) . '<br/>' 
+      . text($rx->quantity). ' '
+      . text($rx->form_array[$rx->form]). '<br/>'
+      . text($rx->dosage) . ' '
+      . text($rx->form_array[$rx->form]). ' '
+      . text($rx->route_array[$rx->route]) . ' '
+      . text($rx->interval_array[$rx->interval]) . '<br/>'
+      . text($rx->note) . '<br/>'
       . 'refills:' . $rx->refills . '';
 //      . $rx->substitute_array[$rx->substitute]. ''
 //      . $rx->per_refill . '';
@@ -352,7 +353,8 @@ else {
 	print "</div>";
 ?>
         <script language='JavaScript'>
-        window.print();
+        var win = top.printLogPrint ? top : opener.top;
+        win.printLogPrint(window);
         </script>
 	</div>
         </body>
@@ -488,7 +490,7 @@ else {
 $results = array();
 echo "<div id='checkboxes'>\n";
 $count = 0;
-while ($result = mysql_fetch_array($query, MYSQL_ASSOC)) {
+while ($result = sqlFetchArray($query)) {
   $checked = '';
   if ($result['category'] == 'prescriptions' && $count < 4) {
     $count++;

@@ -38,10 +38,10 @@ require_once('../../globals.php');
 require_once($GLOBALS['srcdir'].'/patient.inc');
 require_once($GLOBALS['srcdir'].'/forms.inc');
 require_once($GLOBALS['srcdir'].'/calendar.inc');
-require_once($GLOBALS['srcdir'].'/formdata.inc.php');
 require_once($GLOBALS['srcdir'].'/options.inc.php');
 require_once($GLOBALS['srcdir'].'/encounter_events.inc.php');
 require_once($GLOBALS['srcdir'].'/acl.inc');
+require_once($GLOBALS['srcdir'].'/patient_tracker.inc.php');
 
  //Check access control
  if (!acl_check('patients','appt','',array('write','wsome') ))
@@ -129,21 +129,45 @@ function DOBandEncounter()
    global $event_date,$info_msg;
 	 // Save new DOB if it's there.
 	 $patient_dob = trim($_POST['form_dob']);
+	 $tmph = $_POST['form_hour'] + 0;
+     $tmpm = $_POST['form_minute'] + 0;
+     if ($_POST['form_ampm'] == '2' && $tmph < 12) $tmph += 12;
+     $appttime = "$tmph:$tmpm:00";
+
 	 if ($patient_dob && $_POST['form_pid']) {
 			 sqlStatement("UPDATE patient_data SET DOB = ? WHERE " .
 									 "pid = ?", array($patient_dob,$_POST['form_pid']) );
 	 }
-
-	 // Auto-create a new encounter if appropriate.
-	 //
-	 if ($GLOBALS['auto_create_new_encounters'] && $_POST['form_apptstatus'] == '@' && $event_date == date('Y-m-d'))
-	 {
+	 
+    // Manage tracker status.
+    // And auto-create a new encounter if appropriate.	 
+    if (!empty($_POST['form_pid'])) {
+     if ($GLOBALS['auto_create_new_encounters'] && $event_date == date('Y-m-d') && (is_checkin($_POST['form_apptstatus']) == '1') && !is_tracker_encounter_exist($event_date,$appttime,$_POST['form_pid'],$_GET['eid']))		 
+     {
 		 $encounter = todaysEncounterCheck($_POST['form_pid'], $event_date, $_POST['form_comments'], $_POST['facility'], $_POST['billing_facility'], $_POST['form_provider'], $_POST['form_category'], false);
 		 if($encounter){
 				 $info_msg .= xl("New encounter created with id"); 
 				 $info_msg .= " $encounter";
 		 }
-	 }
+                 # Capture the appt status and room number for patient tracker. This will map the encounter to it also.
+                 if ( isset($GLOBALS['temporary-eid-for-manage-tracker']) || !empty($_GET['eid']) ) {
+                    // Note that the temporary-eid-for-manage-tracker is used to capture the eid for new appointments and when separate a recurring
+                    // appointment. It is set in the InsertEvent() function. Note that in the case of spearating a recurrent appointment, the get eid
+                    // parameter is actually erroneous(is eid of the recurrent appt and not the new separated appt), so need to use the
+                    // temporary-eid-for-manage-tracker global instead.
+                    $temp_eid = (isset($GLOBALS['temporary-eid-for-manage-tracker'])) ? $GLOBALS['temporary-eid-for-manage-tracker'] : $_GET['eid'];
+	 	    manage_tracker_status($event_date,$appttime,$temp_eid,$_POST['form_pid'],$_SESSION["authUser"],$_POST['form_apptstatus'],$_POST['form_room'],$encounter);
+                 }
+     }
+     else 
+     {
+             # Capture the appt status and room number for patient tracker. 
+             if (!empty($_GET['eid'])) {
+                manage_tracker_status($event_date,$appttime,$_GET['eid'],$_POST['form_pid'],$_SESSION["authUser"],$_POST['form_apptstatus'],$_POST['form_room']);
+             }
+     }
+    }
+
  }
 //================================================================================================================
 
@@ -202,7 +226,7 @@ if ($_POST['form_action'] == "duplicate" || $_POST['form_action'] == "save")
         $tmph = $_POST['form_hour'] + 0;
         $tmpm = $_POST['form_minute'] + 0;
         if ($_POST['form_ampm'] == '2' && $tmph < 12) $tmph += 12;
-        $duration = $_POST['form_duration'];
+        $duration = abs($_POST['form_duration']); // fixes #395
     }
     $starttime = "$tmph:$tmpm:00";
     //
@@ -429,6 +453,7 @@ if ($_POST['form_action'] == "save") {
                         "pc_title = '" . add_escape_custom($_POST['form_title']) . "', " .
                         "pc_time = NOW(), " .
                         "pc_hometext = '" . add_escape_custom($_POST['form_comments']) . "', " .
+                        "pc_room = '" . add_escape_custom($_POST['form_room']) . "', " .
                         "pc_informant = '" . add_escape_custom($_SESSION['authUserID']) . "', " .
                         "pc_eventDate = '" . add_escape_custom($event_date) . "', " .
                         "pc_endDate = '" . add_escape_custom(fixDate($_POST['form_enddate'])) . "', " .
@@ -520,6 +545,7 @@ if ($_POST['form_action'] == "save") {
                     "pc_title = '" . add_escape_custom($_POST['form_title']) . "', " .
                     "pc_time = NOW(), " .
                     "pc_hometext = '" . add_escape_custom($_POST['form_comments']) . "', " .
+                    "pc_room = '" . add_escape_custom($_POST['form_room']) . "', " .
                     "pc_informant = '" . add_escape_custom($_SESSION['authUserID']) . "', " .
                     "pc_eventDate = '" . add_escape_custom($event_date) . "', " .
                     "pc_endDate = '" . add_escape_custom(fixDate($_POST['form_enddate'])) . "', " .
@@ -650,10 +676,14 @@ if ($_POST['form_action'] == "save") {
  }
 
  if ($_POST['form_action'] != "") {
-  // Close this window and refresh the calendar display.
+  // Close this window and refresh the calendar (or the patient_tracker) display.
   echo "<html>\n<body>\n<script language='JavaScript'>\n";
   if ($info_msg) echo " alert('" . addslashes($info_msg) . "');\n";
-  echo " if (opener && !opener.closed && opener.refreshme) opener.refreshme();\n";
+  echo " if (opener && !opener.closed && opener.refreshme) {\n " .
+       "  opener.refreshme();\n " . // This is for standard calendar page refresh
+       " } else {\n " .
+       "  window.opener.pattrk.submit()\n " . // This is for patient flow board page refresh
+       " };\n";
   echo " window.close();\n";
   echo "</script>\n</body>\n</html>\n";
   exit();
@@ -689,6 +719,7 @@ if ($_POST['form_action'] == "save") {
  if ($_REQUEST['patientid']) $patientid = $_REQUEST['patientid'];
  $patientname = xl('Click to select');
  $patienttitle = "";
+ $pcroom = "";
  $hometext = "";
  $row = array();
  $informant = "";
@@ -730,7 +761,7 @@ if ($_POST['form_action'] == "save") {
       $repeattype = 6;
     }
   }
-
+  $pcroom = $row['pc_room'];
   $hometext = $row['pc_hometext'];
   if (substr($hometext, 0, 6) == ':text:') $hometext = substr($hometext, 6);
  }
@@ -785,7 +816,7 @@ if ($_POST['form_action'] == "save") {
 
  // Get event categories.
  $cres = sqlStatement("SELECT pc_catid, pc_catname, pc_recurrtype, pc_duration, pc_end_all_day " .
-  "FROM openemr_postcalendar_categories ORDER BY pc_catname");
+  "FROM openemr_postcalendar_categories where pc_active = 1 ORDER BY pc_seq");
 
  // Fix up the time format for AM/PM.
  $startampm = '1';
@@ -828,7 +859,7 @@ td { font-size:0.8em; }
  }
  $cres = sqlStatement("SELECT pc_catid, pc_cattype, pc_catname, " .
   "pc_recurrtype, pc_duration, pc_end_all_day " .
-  "FROM openemr_postcalendar_categories ORDER BY pc_catname");
+  "FROM openemr_postcalendar_categories where pc_active = 1 ORDER BY pc_seq");
  $catoptions = "";
  $prefcat_options = "    <option value='0'>-- " . xlt("None") . " --</option>\n";
  $thisduration = 0;
@@ -982,7 +1013,7 @@ td { font-size:0.8em; }
   }
   var lasttext = '';
   var tmp = new Date(d.getUTCFullYear(), d.getUTCMonth() + 1, 0);
-  if (tmp.getUTCDate() - d.getUTCDate() < 7) {
+  if (tmp.getDate() - d.getUTCDate() < 7) { // Modified by epsdky 2016 (details in commit)
    // This is a last occurrence of the specified weekday in the month,
    // so permit that as an option.
    lasttext = '<?php echo xls("Last"); ?> ' + downame;
@@ -993,6 +1024,7 @@ td { font-size:0.8em; }
   if (nthtext ) opts[opts.length] = new Option(nthtext , '5');
   if (lasttext) opts[opts.length] = new Option(lasttext, '6');
   if (si < opts.length) f.form_repeat_type.selectedIndex = si;
+  else f.form_repeat_type.selectedIndex = 5; // Added by epsdky 2016 (details in commit)
  }
 
  // This is for callback by the find-available popup.
@@ -1039,7 +1071,7 @@ td { font-size:0.8em; }
 
 </head>
 
-<body class="body_top" onunload='imclosing()'>
+<body class="body_top main-calendar-add_edit_event" onunload='imclosing()'>
 
 <form method='post' name='theform' id='theform' action='add_edit_event.php?eid=<?php echo attr($eid) ?>' />
 <!-- ViSolve : Requirement - Redirect to Create New Patient Page -->
@@ -1098,62 +1130,61 @@ $classpati='';
 		</ul>
 </th></tr>
 <tr><td colspan='10'>
-<table border='0' width='100%' bgcolor='#DDDDDD' >
-
+<table border='0' width='100%' bgcolor='#DDDDDD'>
+    <tr>
+        <td width='1%' nowrap>
+            <b><?php echo xlt('Category'); ?>:</b>
+        </td>
+        <td nowrap>
+            <select name='form_category' onchange='set_category()' style='width:100%'>
+                <?php echo $catoptions ?>
+            </select>
+        </td>
+        <td width='1%' nowrap>
+            &nbsp;&nbsp;
+            <input type='radio' name='form_allday' onclick='set_allday()' value='1' id='rballday1'
+            <?php if ($thisduration == 1440) echo "checked " ?>/>
+        </td>
+        <td colspan='2' nowrap id='tdallday1'>
+            <?php echo xlt('All day event'); ?>
+        </td>
+    </tr>
+    <tr>
+        <td nowrap>
+            <b><?php echo xlt('Date'); ?>:</b>
+        </td>
+        <td nowrap>
+            <input type='text' size='10' name='form_date' id='form_date'
+                    value='<?php echo attr($date) ?>'
+                    title='<?php echo xla('yyyy-mm-dd event date or starting date'); ?>'
+                    onkeyup='datekeyup(this,mypcc)' onblur='dateblur(this,mypcc)' onchange='dateChanged()' />
+            <img src='../../pic/show_calendar.gif' align='absbottom' width='24' height='22'
+                    id='img_date' border='0' alt='[?]' style='cursor:pointer;cursor:hand'
+                    title='<?php echo xla('Click here to choose a date'); ?>'>
+        </td>
+        <td nowrap>
+            &nbsp;&nbsp;
+            <input type='radio' name='form_allday' onclick='set_allday()' value='0' id='rballday2' <?php if ($thisduration != 1440) echo "checked " ?>/>
+        </td>
+        <td width='1%' nowrap id='tdallday2'>
+            <?php echo xlt('Time'); ?>
+        </td>
+        <td width='1%' nowrap id='tdallday3'>
+            <span>   
+                <input type='text' size='2' name='form_hour' value='<?php echo attr($starttimeh) ?>'
+                 title='<?php echo xla('Event start time'); ?>' /> :
+                <input type='text' size='2' name='form_minute' value='<?php echo attr($starttimem) ?>'
+                 title='<?php echo xla('Event start time'); ?>' />&nbsp;
+            </span>
+            <select name='form_ampm' title='<?php echo xla("Note: 12:00 noon is PM, not AM"); ?>'>
+                <option value='1'><?php echo xlt('AM'); ?></option>
+                <option value='2'<?php if ($startampm == '2') echo " selected" ?>><?php echo xlt('PM'); ?></option>
+            </select>
+        </td>
+    </tr>
  <tr>
-  <td width='1%' nowrap>
-   <b><?php echo ($GLOBALS['athletic_team'] ? xlt('Team/Squad') : xlt('Category')); ?>:</b>
-  </td>
   <td nowrap>
-   <select name='form_category' onchange='set_category()' style='width:100%'>
-<?php echo $catoptions ?>
-   </select>
-  </td>
-  <td width='1%' nowrap>
-   &nbsp;&nbsp;
-   <input type='radio' name='form_allday' onclick='set_allday()' value='1' id='rballday1'
-    <?php if ($thisduration == 1440) echo "checked " ?>/>
-  </td>
-  <td colspan='2' nowrap id='tdallday1'>
-   <?php echo xlt('All day event'); ?>
-  </td>
- </tr>
-
- <tr>
-  <td nowrap>
-   <b><?php echo xlt('Date'); ?>:</b>
-  </td>
-  <td nowrap>
-   <input type='text' size='10' name='form_date' id='form_date'
-    value='<?php echo attr($date) ?>'
-    title='<?php echo xla('yyyy-mm-dd event date or starting date'); ?>'
-    onkeyup='datekeyup(this,mypcc)' onblur='dateblur(this,mypcc)' onchange='dateChanged()' />
-   <img src='../../pic/show_calendar.gif' align='absbottom' width='24' height='22'
-    id='img_date' border='0' alt='[?]' style='cursor:pointer;cursor:hand'
-    title='<?php echo xla('Click here to choose a date'); ?>'>
-  </td>
-  <td nowrap>
-   &nbsp;&nbsp;
-   <input type='radio' name='form_allday' onclick='set_allday()' value='0' id='rballday2' <?php if ($thisduration != 1440) echo "checked " ?>/>
-  </td>
-  <td width='1%' nowrap id='tdallday2'>
-   <?php echo xlt('Time'); ?>
-  </td>
-  <td width='1%' nowrap id='tdallday3'>
-   <input type='text' size='2' name='form_hour' value='<?php echo attr($starttimeh) ?>'
-    title='<?php echo xla('Event start time'); ?>' /> :
-   <input type='text' size='2' name='form_minute' value='<?php echo attr($starttimem) ?>'
-    title='<?php echo xla('Event start time'); ?>' />&nbsp;
-   <select name='form_ampm' title='<?php echo xla("Note: 12:00 noon is PM, not AM"); ?>'>
-    <option value='1'><?php echo xlt('AM'); ?></option>
-    <option value='2'<?php if ($startampm == '2') echo " selected" ?>><?php echo xlt('PM'); ?></option>
-   </select>
-  </td>
- </tr>
-
- <tr>
-  <td nowrap>
-   <b><?php echo ($GLOBALS['athletic_team'] ? xlt('Team/Squad') : xlt('Title')); ?>:</b>
+   <b><?php echo xlt('Title'); ?>:</b>
   </td>
   <td nowrap>
    <input type='text' size='10' name='form_title' value='<?php echo attr($row['pc_title']); ?>'
@@ -1397,7 +1428,7 @@ if  ($GLOBALS['select_multi_providers']) {
 
  <tr>
   <td nowrap>
-   <span id='title_apptstatus'><b><?php echo ($GLOBALS['athletic_team'] ? xlt('Session Type') : xlt('Status')); ?>:</b></span>
+   <span id='title_apptstatus'><b><?php echo xlt('Status'); ?>:</b></span>
    <span id='title_prefcat' style='display:none'><b><?php echo xlt('Pref Cat'); ?>:</b></span>
   </td>
   <td nowrap>
@@ -1438,7 +1469,20 @@ if ($repeatexdate != "") {
 ?>
   </td>
  </tr>
-
+ <?php
+ if($_GET['prov']!=true){
+ ?>
+ <tr>
+  <td nowrap>
+   <b><?php echo xlt('Room Number'); ?>:</b>
+  </td>
+  <td colspan='4' nowrap>
+<?php
+	echo generate_select_list('form_room', 'patient_flow_board_rooms',$pcroom, xl('Room Number'));
+?>
+  </td>
+ </tr>
+<?php } ?>
  <tr>
   <td nowrap>
    <b><?php echo xlt('Comments'); ?>:</b>
@@ -1448,6 +1492,7 @@ if ($repeatexdate != "") {
   </td>
  </tr>
 
+ 
 <?php
  // DOB is important for the clinic, so if it's missing give them a chance
  // to enter it right here.  We must display or hide this row dynamically
@@ -1469,7 +1514,7 @@ if ($repeatexdate != "") {
  </tr>
 
 </table></td></tr>
-<tr class='text'><td colspan='10'>
+<tr class='text'><td colspan='10' class="buttonbar">
 <p>
 <input type='button' name='form_save' id='form_save' value='<?php echo xla('Save');?>' />
 &nbsp;

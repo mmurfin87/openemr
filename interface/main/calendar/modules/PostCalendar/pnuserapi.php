@@ -499,7 +499,7 @@ function postcalendar_userapi_buildView($args)
 		$tpl->assign_by_ref('TODAY_DATE',$today_date);
 		$tpl->assign_by_ref('DATE',$Date);
 		$tpl->assign('SCHEDULE_BASE_URL', pnModURL(__POSTCALENDAR__,'user','submit'));
-		$tpl->assign_by_ref('interval',$intervals);
+		$tpl->assign_by_ref('intervals',$intervals);
         };
 
 	//=================================================================
@@ -1117,7 +1117,6 @@ function &postcalendar_userapi_pcQueryEvents($args)
     // this is the common information
 
     $events[$i]['intervals'] 	=($tmp['duration']/60)/	$GLOBALS['day_calandar_interval'];//sets the number of rows this event should span
-    print_r($events[$i]['intervals']);
 
     $events[$i]['eid']         = $tmp['eid'];
     $events[$i]['uname']       = $tmp['uname'];
@@ -1446,21 +1445,8 @@ function calculateEvents($days,$events,$viewtype) {
         //==============================================================
         $nm = $esM; $ny = $esY; $nd = $esD;
         // make us current
-        //
-        // $nd at some time will be 29, 30 or 31 which will cause overflow in mktime,
-        // so need to use $this01 instead.
-        // more detailed explanation of this bug fix is:
-        //  Lines 1462-1465 and 1497 are only concerned with year and month.
-        //  Only the year and month elements of the value of $occurance calculated
-        //  in the 1463 and 1497 lines (mktime) are ever inputs for further processing
-        //  (and only in line 1471). The day component never becomes an input for anything
-        //  at all (except explode function). So it is irrelevant. (Also the only values of
-        //  $nd that are important to lines 1463 and 1497 are 29, 30 and 30 since these will
-        //  cause an overflow to the next month)
-        $this01 = '01';
-
         while($ny < $cy) {
-          $occurance = date('Y-m-d',mktime(0,0,0,$nm+$rfreq,$this01,$ny));
+          $occurance = date('Y-m-d',mktime(0,0,0,$nm+$rfreq,$nd,$ny));
           list($ny,$nm,$nd) = explode('-',$occurance);
         }
 
@@ -1494,7 +1480,7 @@ function calculateEvents($days,$events,$viewtype) {
               $days[$occurance]['blocks'][$gbt][$occurance][] = $event;
             }
           }
-          $occurance = date('Y-m-d',mktime(0,0,0,$nm+$rfreq,$this01,$ny));
+          $occurance = date('Y-m-d',mktime(0,0,0,$nm+$rfreq,$nd,$ny));
           list($ny,$nm,$nd) = explode('-',$occurance);
         }
 

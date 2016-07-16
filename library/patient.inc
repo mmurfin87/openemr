@@ -108,6 +108,47 @@ function getInsuranceProviders() {
     return $returnval;
 }
 
+function getInsuranceProvidersExtra() {
+    $returnval = array();
+// add a global and if for where to allow inactive inscompanies
+
+        $sql = "select insurance_companies.name, insurance_companies.id, " .
+          "addresses.zip, addresses.line1, addresses.state " .
+          "from insurance_companies, addresses " .
+          "where addresses.foreign_id = insurance_companies.id " .
+          "order by insurance_companies.name, addresses.zip";
+
+        $rez = sqlStatement($sql);
+
+        for($iter=0; $row=sqlFetchArray($rez); $iter++) {
+    switch ($GLOBALS['insurance_information']) {
+        case $GLOBALS['insurance_information'] = '0':
+            $returnval[$row['id']] = $row['name'];
+        break;
+        case $GLOBALS['insurance_information'] = '1':
+            $returnval[$row['id']] = $row['name'] . " (" . $row['line1'] . ")";
+        break; 
+        case $GLOBALS['insurance_information'] = '2':
+           $returnval[$row['id']] = $row['name'] . " (" . $row['line1'] . "," . $row['zip'] . ")";	
+        break;
+        case $GLOBALS['insurance_information'] = '3':
+           $returnval[$row['id']] = $row['name'] . " (" . $row['line1'] . "," . $row['state'] . ")";
+        break; 
+        case $GLOBALS['insurance_information'] = '4':
+	       $returnval[$row['id']] = $row['name'] . " (" . $row['line1'] . "," . $row['state'] .
+           "," . $row['zip'] . ")";
+        break;
+        case $GLOBALS['insurance_information'] = '5':
+            preg_match("/\d+/", $row['line1'], $matches);
+            $returnval[$row['id']] = $row['name'] . " (" . $row['zip'] .
+              "," . $matches[0] . ")";
+        break; 
+        }
+    }
+
+    return $returnval;
+}
+
 function getProviders() {
     $returnval = array("");
     $sql = "select fname, lname from users where authorized = 1 and " .
@@ -263,7 +304,7 @@ function getProviderInfo($providerID = "%", $providers_only = true, $facility = 
     }
     $query = "select distinct id, username, lname, fname, authorized, info, facility " .
         "from users where username != '' and active = 1 and id $command '" .
-        mysql_real_escape_string($providerID) . "' " . $param1 . $param2;
+        add_escape_custom($providerID) . "' " . $param1 . $param2;
     // sort by last name -- JRM June 2008
     $query .= " ORDER BY lname, fname ";
     $rez = sqlStatement($query);
@@ -294,7 +335,7 @@ function getCalendarProviderInfo($providerID = "%", $providers_only = true) {
     }
     $query = "select distinct id, username, lname, fname, authorized, info, facility " .
         "from users where active = 1 and username != '' and id $command '" .
-        mysql_real_escape_string($providerID) . "' " . $param1;
+        add_escape_custom($providerID) . "' " . $param1;
 
     $rez = sqlStatement($query);
     for($iter=0; $row=sqlFetchArray($rez); $iter++)
@@ -346,6 +387,10 @@ function getHistoryData($pid, $given = "*", $dateStart='',$dateEnd='')
     else {
         $res = sqlQuery("select $given from history_data where pid=? order by date DESC limit 0,1", array($pid) );
     }
+    
+    if($given == 'tobacco'){
+    	$res = sqlQuery("select $given from history_data where pid = ? and tobacco is not null and date >= ? and date <= ? order by date DESC limit 0,1", array($pid,$dateStart,$dateEnd));
+    }
 
     return $res;
 }
@@ -388,33 +433,80 @@ function _set_patient_inc_count($limit, $count, $where, $whereBindArray=array())
   }
 }
 
-function getPatientLnames($lname = "%", $given = "pid, id, lname, fname, mname, providerID, DATE_FORMAT(DOB,'%m/%d/%Y') as DOB_TS", $orderby = "lname ASC, fname ASC", $limit="all", $start="0")
+/**
+ * Allow the last name to be followed by a comma and some part of a first name(can
+ *   also place middle name after the first name with a space separating them)
+ * Allows comma alone followed by some part of a first name(can also place middle name
+ *   after the first name with a space separating them).
+ * Allows comma alone preceded by some part of a last name.
+ * If no comma or space, then will search both last name and first name.
+ * If the first letter of either name is capital, searches for name starting
+ *   with given substring (the expected behavior). If it is lower case, it
+ *   searches for the substring anywhere in the name. This applies to either
+ *   last name, first name, and middle name.
+ * Also allows first name followed by middle and/or last name when separated by spaces.
+ * @param string $term
+ * @param string $given
+ * @param string $orderby
+ * @param string $limit
+ * @param string $start
+ * @return array
+ */
+function getPatientLnames($term = "%", $given = "pid, id, lname, fname, mname, providerID, DATE_FORMAT(DOB,'%m/%d/%Y') as DOB_TS", $orderby = "lname ASC, fname ASC", $limit="all", $start="0")
 {
-    // Allow the last name to be followed by a comma and some part of a first name.
-    // New behavior for searches:
-    // Allows comma alone followed by some part of a first name
-    // If the first letter of either name is capital, searches for name starting
-    // with given substring (the expected behavior).  If it is lower case, it
-    // it searches for the substring anywhere in the name.  This applies to either
-    // last name or first name or both.  The arbitrary limit of 100 results is set
-    // in the sql query below. --Mark Leeds
-    $lname = trim($lname);
-    $fname = '';
-     if (preg_match('/^(.*),(.*)/', $lname, $matches)) {
-         $lname = trim($matches[1]);
-         $fname = trim($matches[2]);
+    $names = getPatientNameSplit($term);
+    
+    foreach ($names as $key => $val) {
+      if (!empty($val)) {
+        if ((strlen($val) > 1) && ($names[$key][0] != strtoupper($names[$key][0]))) {
+            $names[$key] = '%' . $val . '%';            
+        } else { 
+            $names[$key] = $val . '%';            
+        }
+      }
     }
-    $search_for_pieces1 = '';
-    $search_for_pieces2 = '';
-    if ((strlen($lname) < 1)|| ($lname{0} != strtoupper($lname{0}))) {$search_for_pieces1 = '%';}
-    if ((strlen($fname) < 1)|| ($fname{0} != strtoupper($fname{0}))) {$search_for_pieces2 = '%';}
 
+    // Debugging section below
+    //if(array_key_exists('first',$names)) {
+    //    error_log("first name search term :".$names['first']);
+    //}
+    //if(array_key_exists('middle',$names)) {
+    //    error_log("middle name search term :".$names['middle']);
+    //}
+    //if(array_key_exists('last',$names)) {
+    //    error_log("last name search term :".$names['last']);
+    //}
+    // Debugging section above
+ 
     $sqlBindArray = array();
-    $where = "lname LIKE ? AND fname LIKE ? ";
-    array_push($sqlBindArray, $search_for_pieces1.$lname."%", $search_for_pieces2.$fname."%");
+    if(array_key_exists('last',$names) && $names['last'] == '') {
+        // Do not search last name
+        $where = "fname LIKE ? ";
+        array_push($sqlBindArray, $names['first']);
+        if ($names['middle'] != '') {        
+            $where .= "AND mname LIKE ? ";  
+            array_push($sqlBindArray, $names['middle']);
+        }
+    } elseif(array_key_exists('first',$names) && $names['first'] == '') {
+        // Do not search first name or middle name
+        $where = "lname LIKE ? ";
+        array_push($sqlBindArray, $names['last']);
+    } elseif($names['first'] == '' && $names['last'] != '') {
+        // Search both first name and last name with same term
+        $names['first'] = $names['last']; 
+        $where = "lname LIKE ? OR fname LIKE ? ";
+        array_push($sqlBindArray, $names['last'], $names['first']);
+    } elseif ($names['middle'] != '') {        
+        $where = "lname LIKE ? AND fname LIKE ? AND mname LIKE ? ";  
+        array_push($sqlBindArray, $names['last'], $names['first'], $names['middle']);
+    } else {
+        $where = "lname LIKE ? AND fname LIKE ? ";
+        array_push($sqlBindArray, $names['last'], $names['first']);
+    }
+
         if (!empty($GLOBALS['pt_restrict_field'])) {
                 if ( $_SESSION{"authUser"} != 'admin' || $GLOBALS['pt_restrict_admin'] ) {
-                        $where .= "AND ( patient_data." . add_escape_custom($GLOBALS['pt_restrict_field']) .
+                        $where .= " AND ( patient_data." . add_escape_custom($GLOBALS['pt_restrict_field']) .
                             " = ( SELECT facility_id FROM users WHERE username = ?) OR patient_data." .
                             add_escape_custom($GLOBALS['pt_restrict_field']) . " = '' ) ";
 			array_push($sqlBindArray, $_SESSION{"authUser"});
@@ -432,6 +524,48 @@ function getPatientLnames($lname = "%", $given = "pid, id, lname, fname, mname, 
 
     _set_patient_inc_count($limit, count($returnval), $where, $sqlBindArray);
     return $returnval;
+}
+/**
+ * Accept a string used by a search function expected to find a patient name, 
+ * then split up the string if a comma or space exists. Return an array having 
+ * from 1 to 3 elements, named first, middle, and last.
+ * See above getPatientLnames() function for details on how the splitting occurs.
+ * @param string $term
+ * @return array
+ */
+function getPatientNameSplit($term) {
+    $term = trim($term);
+    if (strpos($term, ',') !== false) {
+        $names = explode(',', $term);        
+        $n['last'] = $names[0];
+        if (strpos(trim($names[1]), ' ') !== false) {
+            list($n['first'], $n['middle']) = explode(' ', trim($names[1]));
+        } else {
+            $n['first'] = $names[1];
+        }
+    } elseif (strpos($term, ' ') !== false) {
+        $names = explode(' ', $term);
+        if (count($names) == 1) {
+            $n['last'] = $names[0];
+        } elseif (count($names) == 3) {
+            $n['first'] = $names[0];
+            $n['middle'] = $names[1];
+            $n['last'] = $names[2];
+        } else {
+            // This will handle first and last name or first followed by 
+            // multiple names only using just the last of the names in the list.
+            $n['first'] = $names[0];
+            $n['last'] = end($names);
+        }
+    } else {
+        $n['last'] = $term;
+	if(empty($n['last'])) $n['last'] = '%';
+    }
+    // Trim whitespace off the names before returning
+    foreach($n as $key => $val) {
+        $n[$key] = trim($val);
+    }
+    return $n; // associative array containing names
 }
 
 function getPatientId($pid = "%", $given = "pid, id, lname, fname, mname, providerID, DATE_FORMAT(DOB,'%m/%d/%Y') as DOB_TS", $orderby = "lname ASC, fname ASC", $limit="all", $start="0")
@@ -486,7 +620,7 @@ function getByPatientDemographicsFilter($searchFields, $searchTerm = "%",
   $given = "pid, id, lname, fname, mname, providerID, DATE_FORMAT(DOB,'%m/%d/%Y') as DOB_TS",
   $orderby = "lname ASC, fname ASC", $limit="all", $start="0", $search_service_code='')
 {
-	$layoutCols = split( '~', $searchFields );
+	$layoutCols = explode( '~', $searchFields );
   $sqlBindArray = array();
   $where = "";
   $i = 0;
@@ -623,7 +757,7 @@ function getPatientSSN($ss = "%", $given = "pid, id, lname, fname, mname, provid
 //(CHEMED) Search by phone number
 function getPatientPhone($phone = "%", $given = "pid, id, lname, fname, mname, providerID", $orderby = "lname ASC, fname ASC", $limit="all", $start="0")
 {
-    $phone = ereg_replace( "[[:punct:]]","", $phone );
+    $phone = preg_replace( "/[[:punct:]]/","", $phone );
     $sqlBindArray = array();
     $where = "REPLACE(REPLACE(phone_home, '-', ''), ' ', '') REGEXP ?";
     array_push($sqlBindArray, $phone);
@@ -690,6 +824,7 @@ function newPatientData(    $db_id="",
                 $genericval1 = "",
                 $genericname2 = "",
                 $genericval2 = "",
+                $billing_note="",
                 $phone_cell = "",
                 $hipaa_mail = "",
                 $hipaa_voice = "",
@@ -762,6 +897,7 @@ function newPatientData(    $db_id="",
         genericval1 = '$genericval1',
         genericname2 = '$genericname2',
         genericval2 = '$genericval2',
+        billing_note= '$billing_note';
         phone_cell = '$phone_cell',
         pharmacy_id = '$pharmacy_id',
         hipaa_mail = '$hipaa_mail',
@@ -779,7 +915,7 @@ function newPatientData(    $db_id="",
  
     if ( !$db_id ) {
       // find the last inserted id for new patient case
-      $db_id = mysql_insert_id();
+      $db_id = getSqlLastID();
     }
 
     $foo = sqlQuery("select pid from patient_data where id='$id' order by date limit 0,1");

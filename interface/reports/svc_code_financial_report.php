@@ -8,7 +8,7 @@
  * Administration->Service section by assigning code with
  * 'Service Reporting'.
  *
- * Copyright (C) 2006-2010 Rod Roark <rod@sunsetsystems.com>
+ * Copyright (C) 2006-2016 Rod Roark <rod@sunsetsystems.com>
  *
  * LICENSE: This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,7 +31,6 @@ $fake_register_globals=false;
 
 require_once("../globals.php");
 require_once("$srcdir/patient.inc");
-require_once("$srcdir/sql-ledger.inc");
 require_once("$srcdir/acl.inc");
 require_once("$srcdir/formatting.inc.php");
 require_once "$srcdir/options.inc.php";
@@ -46,10 +45,6 @@ $grand_total_amt_balance  = 0;
 
 
   if (! acl_check('acct', 'rep')) die(xlt("Unauthorized access."));
-
-  $INTEGRATED_AR = $GLOBALS['oer_config']['ws_accounting']['enabled'] === 2;
-
-  if (!$INTEGRATED_AR) SLConnect();
 
   $form_from_date = fixDate($_POST['form_from_date'], date('Y-m-d'));
   $form_to_date   = fixDate($_POST['form_to_date']  , date('Y-m-d'));
@@ -70,12 +65,8 @@ $grand_total_amt_balance  = 0;
 <html>
 <head>
 <link rel="stylesheet" href="<?php echo $css_header;?>" type="text/css">
-<script type="text/javascript" src="<?php echo $GLOBALS['webroot'] ?>/library/dialog.js"></script>
-<script type="text/javascript" src="<?php echo $GLOBALS['webroot'] ?>/library/js/jquery.1.3.2.js"></script>
-<script type="text/javascript" src="<?php echo $GLOBALS['webroot'] ?>/library/js/common.js"></script>
-<script type="text/javascript" src="<?php echo $GLOBALS['webroot'] ?>/library/js/jquery-ui.js"></script>
-<link rel="stylesheet" href="<?php echo $css_header;?>" type="text/css">
 <?php html_header_show();?>
+
 <style type="text/css">
 /* specifically include & exclude from printing */
 @media print {
@@ -101,8 +92,26 @@ $grand_total_amt_balance  = 0;
 }
 </style>
 
+<script type="text/javascript" src="../../library/dialog.js?v=<?php echo $v_js_includes; ?>"></script>
+<script type="text/javascript" src="../../library/js/jquery-1.9.1.min.js"></script>
+<script type="text/javascript" src="../../library/js/common.js?v=<?php echo $v_js_includes; ?>"></script>
+<script type="text/javascript" src="../../library/js/jquery-ui.js"></script>
+<script type="text/javascript" src="../../library/js/report_helper.js?v=<?php echo $v_js_includes; ?>"></script>
+
 <title><?php echo xlt('Financial Summary by Service Code') ?></title>
+
+<script language="JavaScript">
+
+ $(document).ready(function() {
+  oeFixedHeaderSetup(document.getElementById('mymaintable'));
+  var win = top.printLogSetup ? top : opener.top;
+  win.printLogSetup(document.getElementById('printbutton'));
+ });
+
+</script>
+
 </head>
+
 <body leftmargin='0' topmargin='0' marginwidth='0' marginheight='0' class="body_top">
 <span class='title'><?php echo xlt('Report'); ?> - <?php echo xlt('Financial Summary by Service Code'); ?></span>
 <form method='post' action='svc_code_financial_report.php' id='theform'>
@@ -179,7 +188,7 @@ $grand_total_amt_balance  = 0;
 
 					<?php if ($_POST['form_refresh'] || $_POST['form_csvexport']) { ?>
 					<div id="controls">
-					<a href='#' class='css_button' onclick='window.print()'>
+					<a href='#' class='css_button' id='printbutton'>
 						<span>
 							<?php echo xlt('Print'); ?>
 						</span>
@@ -209,7 +218,6 @@ $grand_total_amt_balance  = 0;
     $from_date = $form_from_date;
     $to_date   = $form_to_date;
     $sqlBindArray = array();
-    if ($INTEGRATED_AR) {
     $query = "select b.code,sum(b.units) as units,sum(b.fee) as billed,sum(ar_act.paid) as PaidAmount, " .
         "sum(ar_act.adjust) as AdjustAmount,(sum(b.fee)-(sum(ar_act.paid)+sum(ar_act.adjust))) as Balance, " .
         "c.financial_reporting " .
@@ -269,7 +277,7 @@ $grand_total_amt_balance  = 0;
                 }
               } else {
 ?> <div id="report_results">
-<table >
+<table id='mymaintable'>
  <thead>
   <th>
    <?php echo xlt('Procedure Codes'); ?>
@@ -331,7 +339,6 @@ $bgcolor = ((++$orow & 1) ? "#ffdddd" : "#ddddff");
                 </table>    </div>
         <?php
       }
-    }
 	}
 
   if (! $_POST['form_csvexport']) {

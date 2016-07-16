@@ -73,10 +73,15 @@ if ($is_expired) {
 }
 else if (!empty($_POST['patientID'])) {
   $patientID = 0 + $_POST['patientID'];
-  $frame1url = "../patient_file/summary/demographics.php?set_pid=".attr($patientID);
-}
-else if ($GLOBALS['athletic_team']) {
-  $frame1url = "../reports/players_report.php?embed=1";
+  if (empty($_POST['encounterID'])) {
+    // Open patient summary screen (without a specific encounter)
+    $frame1url = "../patient_file/summary/demographics.php?set_pid=".attr($patientID);
+  }
+  else {
+    // Open patient summary screen with a specific encounter
+    $encounterID = 0 + $_POST['encounterID'];
+    $frame1url = "../patient_file/summary/demographics.php?set_pid=".attr($patientID)."&set_encounterid=".attr($encounterID);
+  }
 }
 else if (isset($_GET['mode']) && $_GET['mode'] == "loadcalendar") {
   $frame1url = "calendar/index.php?pid=" . attr($_GET['pid']);
@@ -95,7 +100,7 @@ else {
   $frame1url = "main.php?mode=" . attr($_GET['mode']);
 }
 
-$nav_area_width = $GLOBALS['athletic_team'] ? '230' : '130';
+$nav_area_width = '130';
 if (!empty($GLOBALS['gbl_nav_area_width'])) $nav_area_width = $GLOBALS['gbl_nav_area_width'];
 ?>
 <html>
@@ -103,10 +108,16 @@ if (!empty($GLOBALS['gbl_nav_area_width'])) $nav_area_width = $GLOBALS['gbl_nav_
 <title>
 <?php echo text($openemr_name) ?>
 </title>
+<script type="text/javascript" src="../../library/js/jquery-1.9.1.min.js"></script>
 <script type="text/javascript" src="../../library/topdialog.js"></script>
 
 <script language='JavaScript'>
 <?php require($GLOBALS['srcdir'] . "/restoreSession.php"); ?>
+
+// This flag indicates if another window or frame is trying to reload the login
+// page to this top-level window.  It is set by javascript returned by auth.inc
+// and is checked by handlers of beforeunload events.
+var timed_out = false;
 
 // This counts the number of frames that have reported themselves as loaded.
 // Currently only left_nav and Title do this, so the maximum will be 2.
@@ -122,6 +133,20 @@ function allFramesLoaded() {
 </head>
 
 <?php
+/*
+ * for RTL layout we need to change order of frames in framesets
+ */
+$lang_dir = $_SESSION['language_direction'];
+
+$sidebar_tpl = "<frameset rows='*,0' frameborder='0' border='0' framespacing='0'>
+   <frame src='left_nav.php' name='left_nav' />
+   <frame src='daemon_frame.php' name='Daemon' scrolling='no' frameborder='0'
+    border='0' framespacing='0' />
+  </frameset>";
+        
+$main_tpl = "<frameset rows='60%,*' id='fsright' bordercolor='#999999' frameborder='1'>" ;
+$main_tpl .= "<frame src='". $frame1url ."' name='RTop' scrolling='auto' />
+   <frame src='messages/messages.php?form_active=1' name='RBot' scrolling='auto' /></frameset>";
 
 // Please keep in mind that border (mozilla) and framespacing (ie) are the
 // same thing. use both.
@@ -133,20 +158,22 @@ if ($GLOBALS['concurrent_layout']) {
     // not tall nav area ?>
 <frameset rows='<?php echo attr($GLOBALS['titleBarHeight']) + 5 ?>,*' frameborder='1' border='1' framespacing='1' onunload='imclosing()'>
  <frame src='main_title.php' name='Title' scrolling='no' frameborder='1' noresize />
- <frameset cols='<?php echo attr($nav_area_width); ?>,*' id='fsbody' frameborder='1' border='4' framespacing='4'>
-  <frameset rows='*,0' frameborder='0' border='0' framespacing='0'>
-   <frame src='left_nav.php' name='left_nav' />
-   <frame src='daemon_frame.php' name='Daemon' scrolling='no' frameborder='0'
-    border='0' framespacing='0' />
-  </frameset>
-<?php if (empty($GLOBALS['athletic_team'])) { ?>
-  <frameset rows='60%,*' id='fsright' bordercolor='#999999' frameborder='1'>
-<?php } else { ?>
-  <frameset rows='100%,*' id='fsright' bordercolor='#999999' frameborder='1'>
-<?php } ?>
-   <frame src='<?php echo $frame1url ?>' name='RTop' scrolling='auto' />
-   <frame src='messages/messages.php?form_active=1' name='RBot' scrolling='auto' />
-  </frameset>
+ <?php if($lang_dir != 'rtl'){ ?>
+ 
+     <frameset cols='<?php echo attr($nav_area_width) . ',*'; ?>' id='fsbody' frameborder='1' border='4' framespacing='4'>
+     <?php echo $sidebar_tpl ?>
+     <?php echo $main_tpl ?>
+     </frameset>
+ 
+ <?php }else{ ?>
+ 
+     <frameset cols='<?php echo  '*,' . attr($nav_area_width); ?>' id='fsbody' frameborder='1' border='4' framespacing='4'>
+     <?php echo $main_tpl ?>
+     <?php echo $sidebar_tpl ?>
+     </frameset>
+ 
+ <?php }?>
+
  </frameset>
 </frameset>
 
@@ -160,11 +187,7 @@ if ($GLOBALS['concurrent_layout']) {
  </frameset>
  <frameset rows='<?php echo attr($GLOBALS['titleBarHeight']) + 5 ?>,*' frameborder='1' border='1' framespacing='1'>
   <frame src='main_title.php' name='Title' scrolling='no' frameborder='1' />
-<?php if (empty($GLOBALS['athletic_team'])) { ?>
   <frameset rows='60%,*' id='fsright' bordercolor='#999999' frameborder='1' border='4' framespacing='4'>
-<?php } else { ?>
-  <frameset rows='100%,*' id='fsright' bordercolor='#999999' frameborder='1' border='4' framespacing='4'>
-<?php } ?>
    <frame src='<?php echo $frame1url ?>' name='RTop' scrolling='auto' />
    <frame src='messages/messages.php?form_active=1' name='RBot' scrolling='auto' />
   </frameset>

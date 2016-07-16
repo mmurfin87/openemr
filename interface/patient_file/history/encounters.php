@@ -2,6 +2,8 @@
 /**
  * Encounter list.
  *
+ * Copyright (C) 2015 Roberto Vasquez <robertogagliotta@gmail.com>
+ *
  * LICENSE: This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
@@ -15,6 +17,7 @@
  *
  * @package OpenEMR
  * @author  Brady Miller <brady@sparmy.com>
+ * @author  Roberto Vasquez <robertogagliotta@gmail.com>
  * @link    http://www.open-emr.org
  */
 
@@ -32,7 +35,6 @@ require_once("$srcdir/billing.inc");
 require_once("$srcdir/patient.inc");
 require_once("$srcdir/lists.inc");
 require_once("$srcdir/acl.inc");
-require_once("$srcdir/sql-ledger.inc");
 require_once("$srcdir/invoice_summary.inc.php");
 require_once("$srcdir/formatting.inc.php");
 require_once("../../../custom/code_types.inc.php");
@@ -43,8 +45,6 @@ require_once("$srcdir/formdata.inc.php");
 // case we only display encounters that are linked to the specified issue.
 $issue = empty($_GET['issue']) ? 0 : 0 + $_GET['issue'];
 
- $accounting_enabled = $GLOBALS['oer_config']['ws_accounting']['enabled'];
- $INTEGRATED_AR = $accounting_enabled === 2;
 
  //maximum number of encounter entries to display on this page:
  // $N = 12;
@@ -76,7 +76,7 @@ $issue = empty($_GET['issue']) ? 0 : 0 + $_GET['issue'];
 //
 $tmp = sqlQuery("select authorized from users " .
   "where id = ?", array($_SESSION['authUserID']) );
-$billing_view = ($tmp['authorized'] || $GLOBALS['athletic_team']) ? 0 : 1;
+$billing_view = ($tmp['authorized']) ? 0 : 1;
 if (isset($_GET['billing']))
     {$billing_view = empty($_GET['billing']) ? 0 : 1;
     }else $billing_view = ($default_encounter == 0) ? 0 : 1;
@@ -151,12 +151,7 @@ function showDocument(&$drow) {
   echo "<td colspan='3'>".
     htmlspecialchars( xl('Document') . ": " . basename($drow['url']) . ' (' . xl_document_category($drow['name']) . ')', ENT_NOQUOTES) .
     "</td>\n";
-
-  // skip billing and insurance columns
-  if (!$GLOBALS['athletic_team']) {
-    echo "<td colspan=5>&nbsp;</td>\n";
-  }
-
+  echo "<td colspan=5>&nbsp;</td>\n";
   echo "</tr>\n";
 }
 
@@ -166,7 +161,7 @@ function generatePageElement($start,$pagesize,$billing,$issue,$text)
     {
         $start = 0;
     }
-    $url="encounters.php?"."pagestart=".$start."&"."pagesize=".$pagesize;
+    $url="encounters.php?"."pagestart=".attr($start)."&"."pagesize=".attr($pagesize);
     $url.="&billing=".$billing;
     $url.="&issue=".$issue;
 
@@ -307,7 +302,7 @@ else
 {
     $pagestart=0;
 }
-$getStringForPage="&pagesize=".$pagesize."&pagestart=".$pagestart;
+$getStringForPage="&pagesize=".attr($pagesize)."&pagestart=".attr($pagestart);
 
 ?>
 <?php if ($billing_view) { ?>
@@ -363,7 +358,7 @@ $getStringForPage="&pagesize=".$pagesize."&pagestart=".$pagestart;
   <th><?php echo htmlspecialchars( xl('Provider'), ENT_NOQUOTES);    ?></th>
 <?php } ?>
 
-<?php if ($billing_view && $accounting_enabled) { ?>
+<?php if ($billing_view) { ?>
   <th><?php echo xl('Code','e'); ?></th>
   <th class='right'><?php echo htmlspecialchars( xl('Chg'), ENT_NOQUOTES); ?></th>
   <th class='right'><?php echo htmlspecialchars( xl('Paid'), ENT_NOQUOTES); ?></th>
@@ -373,7 +368,7 @@ $getStringForPage="&pagesize=".$pagesize."&pagestart=".$pagestart;
   <th colspan='5'><?php echo htmlspecialchars( (($GLOBALS['phone_country_code'] == '1') ? xl('Billing') : xl('Coding')), ENT_NOQUOTES); ?></th>
 <?php } ?>
 
-<?php if (!$GLOBALS['athletic_team'] && !$GLOBALS['ippf_specific']) { ?>
+<?php if (!$GLOBALS['ippf_specific']) { ?>
   <th>&nbsp;<?php echo htmlspecialchars( (($GLOBALS['weight_loss_clinic']) ? xl('Payment') : xl('Insurance')), ENT_NOQUOTES); ?></th>
 <?php } ?>
 
@@ -448,7 +443,6 @@ if(($pagesize>0) && ($pagestart+$pagesize <= $numRes))
 
 $res4 = sqlStatement($query, $sqlBindArray);
 
-if ($billing_view && $accounting_enabled && !$INTEGRATED_AR) SLConnect();
 
 while ($result4 = sqlFetchArray($res4)) {
 
@@ -626,18 +620,11 @@ while ($result4 = sqlFetchArray($res4)) {
                 $arinvoice = array();
                 $arlinkbeg = "";
                 $arlinkend = "";
-                if ($billing_view && $accounting_enabled) {
-                    if ($INTEGRATED_AR) {
+                if ($billing_view) {
                         $tmp = sqlQuery("SELECT id FROM form_encounter WHERE " .
                                     "pid = ? AND encounter = ?", array($pid,$result4['encounter']) );
                         $arid = 0 + $tmp['id'];
                         if ($arid) $arinvoice = ar_get_invoice_summary($pid, $result4['encounter'], true);
-                    }
-                    else {
-                        $arid = SLQueryValue("SELECT id FROM ar WHERE invnumber = " .
-                                        "'$pid.{$result4['encounter']}'");
-                        if ($arid) $arinvoice = get_invoice_summary($arid, true);
-                    }
                     if ($arid) {
                         $arlinkbeg = "<a href='../../billing/sl_eob_invoice.php?id=" .
 			            htmlspecialchars( $arid, ENT_QUOTES)."'" .
@@ -683,7 +670,7 @@ while ($result4 = sqlFetchArray($res4)) {
                       // Otherwise offer the description as a tooltip.
                       $binfo[0] .= "<span title='$title'>$arlinkbeg$codekeydisp$arlinkend</span>";
                     }
-                    if ($billing_view && $accounting_enabled) {
+                    if ($billing_view) {
                         if ($binfo[1]) {
                             for ($i = 1; $i < 5; ++$i) $binfo[$i] .= '<br>';
                         }
@@ -706,7 +693,7 @@ while ($result4 = sqlFetchArray($res4)) {
 
                 // Pick up any remaining unmatched invoice items from the accounting
                 // system.  Display them in red, as they should be unusual.
-                if ($accounting_enabled && !empty($arinvoice)) {
+                if (!empty($arinvoice)) {
                     foreach ($arinvoice as $codekey => $val) {
                         if ($binfo[0]) {
                             for ($i = 0; $i < 5; ++$i) $binfo[$i] .= '<br>';
@@ -733,16 +720,12 @@ while ($result4 = sqlFetchArray($res4)) {
         }
 
         // show insurance
-        if (!$GLOBALS['athletic_team'] && !$GLOBALS['ippf_specific']) {
+        if (!$GLOBALS['ippf_specific']) {
             $insured = oeFormatShortDate($raw_encounter_date);
             if ($auth_demo) {
                 $responsible = -1;
                 if ($arid) {
-                    if ($INTEGRATED_AR) {
                         $responsible = ar_responsible_party($pid, $result4['encounter']);
-                    } else {
-                        $responsible = responsible_party($arid);
-                    }
                 }
                 $subresult5 = getInsuranceDataByDate($pid, $raw_encounter_date, "primary");
                 if ($subresult5 && $subresult5{"provider_name"}) {
@@ -778,7 +761,6 @@ while ($result4 = sqlFetchArray($res4)) {
 
 } // end while
 
-if ($billing_view && $accounting_enabled && !$INTEGRATED_AR) SLClose();
 
 // Dump remaining document lines if count not exceeded.
 while ($drow /* && $count <= $N */) {
